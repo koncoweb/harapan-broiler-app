@@ -25,13 +25,21 @@
       "package": "com.koncoweb.harapanbroiler"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
     },
     "extra": {
       "eas": {
         "projectId": "4f617799-aff8-40ef-9b29-da44d93ccbc7"
       }
     },
-    "owner": "koncoweb"
+    "owner": "koncoweb",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4f617799-aff8-40ef-9b29-da44d93ccbc7"
+    }
   }
 }
