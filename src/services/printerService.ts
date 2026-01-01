@@ -2,19 +2,23 @@ import { WeighingSession, FarmSettings } from '../types';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
+import {
+  isBluetoothPrinterConnected,
+  printBluetoothReceipt
+} from './bluetoothPrinterService';
 
 export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSettings) => {
   // Safe parsing of YYYY-MM-DD to Local Date
   const [year, month, day] = session.date.split('-').map(Number);
   const dateObj = new Date(year, month - 1, day);
   const formattedDate = dateObj.toLocaleDateString('id-ID', {
-      day: 'numeric', month: 'long', year: 'numeric'
+    day: 'numeric', month: 'long', year: 'numeric'
   });
   const timeString = session.time || '';
-  
+
   const farmName = settings?.farmName || "HARAPAN BROILER";
   const farmAddress = settings?.farmAddress || "Jln Sawang Ujung, Perum Griya Azna Indah No 73";
-  
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
   };
@@ -25,10 +29,10 @@ export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSet
     for (let i = 0; i < items.length; i += 2) {
       const leftItem = items[i];
       const rightItem = items[i + 1];
-      
+
       const leftText = `${leftItem.index || (i + 1)}. ${(leftItem.grossWeight || 0).toFixed(2).replace('.', ',')} Kg`;
       const rightText = rightItem ? `${rightItem.index || (i + 2)}. ${(rightItem.grossWeight || 0).toFixed(2).replace('.', ',')} Kg` : '';
-      
+
       gridHtml += `
         <tr>
           <td style="text-align: left; width: 50%; padding: 2px 0; font-size: 10px;">${leftText}</td>
@@ -206,15 +210,15 @@ export const printReceipt = async (session: WeighingSession, settings?: FarmSett
         iframeDoc.open();
         iframeDoc.write(html);
         iframeDoc.close();
-        
+
         // Wait for content to load before printing
         iframe.contentWindow?.focus();
         setTimeout(() => {
-           iframe.contentWindow?.print();
-           // Remove iframe after a delay to ensure print dialog is shown
-           setTimeout(() => {
-             document.body.removeChild(iframe);
-           }, 1000);
+          iframe.contentWindow?.print();
+          // Remove iframe after a delay to ensure print dialog is shown
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+          }, 1000);
         }, 500);
       }
     } else {
@@ -237,3 +241,30 @@ export const shareReceipt = async (session: WeighingSession, settings?: FarmSett
     console.error("Sharing error:", error);
   }
 };
+
+/**
+ * Auto-detect and print to the best available printer
+ * Tries Bluetooth thermal printer first, then falls back to system print dialog
+ */
+export const printReceiptAuto = async (session: WeighingSession, settings?: FarmSettings) => {
+  try {
+    // Try Bluetooth thermal printer first (Android only)
+    if (Platform.OS === 'android') {
+      const bluetoothConnected = await isBluetoothPrinterConnected();
+      if (bluetoothConnected) {
+        console.log('Printing to Bluetooth thermal printer...');
+        await printBluetoothReceipt(session, settings);
+        return;
+      }
+    }
+
+    // Fallback to HTML-based printing (system print dialog)
+    console.log('Printing to system printer...');
+    await printReceipt(session, settings);
+  } catch (error) {
+    console.error("Auto print error:", error);
+    // If Bluetooth fails, fallback to HTML printing
+    await printReceipt(session, settings);
+  }
+};
+

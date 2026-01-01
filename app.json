@@ -22,8 +22,29 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.koncoweb.harapanbroiler"
+      "package": "com.koncoweb.harapanbroiler",
+      "permissions": [
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_CONNECT",
+        "BLUETOOTH_SCAN",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "kotlinVersion": "2.1.20"
+          }
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
