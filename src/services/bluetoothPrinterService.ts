@@ -1,10 +1,21 @@
 // src/services/bluetoothPrinterService.ts
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { WeighingSession, FarmSettings } from '../types';
-import {
-  BluetoothManager,
-  BluetoothEscposPrinter,
-} from '@vardrz/react-native-bluetooth-escpos-printer';
+
+// Conditional import untuk menghindari error di web
+let BluetoothManager: any = null;
+let BluetoothEscposPrinter: any = null;
+
+// Only import Bluetooth modules on Android
+if (Platform.OS === 'android') {
+  try {
+    const bluetoothModule = require('@vardrz/react-native-bluetooth-escpos-printer');
+    BluetoothManager = bluetoothModule.BluetoothManager;
+    BluetoothEscposPrinter = bluetoothModule.BluetoothEscposPrinter;
+  } catch (error) {
+    console.warn('Bluetooth printer module not available:', error);
+  }
+}
 
 // Bluetooth Device Interface
 export interface BluetoothDevice {
@@ -14,7 +25,7 @@ export interface BluetoothDevice {
 
 // Check if Bluetooth is enabled
 export const isBluetoothEnabled = async (): Promise<boolean> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothManager) {
     return false; // iOS requires MFi printer, skip for now
   }
 
@@ -29,7 +40,7 @@ export const isBluetoothEnabled = async (): Promise<boolean> => {
 
 // Request Bluetooth permissions (Android 12+)
 export const requestBluetoothPermissions = async (): Promise<boolean> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothManager) {
     return false;
   }
 
@@ -71,7 +82,7 @@ export const requestBluetoothPermissions = async (): Promise<boolean> => {
 
 // Scan for Bluetooth devices
 export const scanBluetoothDevices = async (): Promise<BluetoothDevice[]> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothManager) {
     Alert.alert('Not Supported', 'Bluetooth printing is only supported on Android');
     return [];
   }
@@ -108,7 +119,7 @@ export const scanBluetoothDevices = async (): Promise<BluetoothDevice[]> => {
 
 // Connect to Bluetooth printer
 export const connectToBluetoothPrinter = async (address: string): Promise<boolean> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothManager) {
     return false;
   }
 
@@ -124,7 +135,7 @@ export const connectToBluetoothPrinter = async (address: string): Promise<boolea
 
 // Disconnect from Bluetooth printer
 export const disconnectBluetoothPrinter = async (): Promise<void> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothManager) {
     return;
   }
 
@@ -137,7 +148,7 @@ export const disconnectBluetoothPrinter = async (): Promise<void> => {
 
 // Check if printer is connected
 export const isBluetoothPrinterConnected = async (): Promise<boolean> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothManager) {
     return false;
   }
 
@@ -169,7 +180,7 @@ export const printBluetoothReceipt = async (
   session: WeighingSession,
   settings?: FarmSettings
 ): Promise<void> => {
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== 'android' || !BluetoothEscposPrinter) {
     Alert.alert('Not Supported', 'Bluetooth printing is only supported on Android');
     return;
   }
