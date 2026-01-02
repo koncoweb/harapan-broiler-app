@@ -23,6 +23,11 @@ export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSet
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
   };
 
+  // Format weight without trailing zeros
+  const formatWeight = (weight: number) => {
+    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
+  };
+
   // Generate items in 2-column layout for space efficiency
   const generateItemsGrid = (items: any[]) => {
     let gridHtml = '';
@@ -30,8 +35,8 @@ export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSet
       const leftItem = items[i];
       const rightItem = items[i + 1];
 
-      const leftText = `${leftItem.index || (i + 1)}. ${(leftItem.grossWeight || 0).toFixed(2).replace('.', ',')} Kg`;
-      const rightText = rightItem ? `${rightItem.index || (i + 2)}. ${(rightItem.grossWeight || 0).toFixed(2).replace('.', ',')} Kg` : '';
+      const leftText = `${leftItem.index || (i + 1)}. ${formatWeight(leftItem.grossWeight || 0)} Kg`;
+      const rightText = rightItem ? `${rightItem.index || (i + 2)}. ${formatWeight(rightItem.grossWeight || 0)} Kg` : '';
 
       gridHtml += `
         <tr>
@@ -150,7 +155,7 @@ export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSet
         <div class="total-section">
            <div class="info-row">
             <span>Tot Berat:</span>
-            <span>${(session.totalNetWeight || 0).toFixed(2).replace('.', ',')} Kg</span>
+            <span>${formatWeight(session.totalNetWeight || 0)} Kg</span>
           </div>
           <div class="info-row">
             <span>Tot Timbangan:</span>

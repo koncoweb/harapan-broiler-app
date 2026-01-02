@@ -18,7 +18,7 @@ export const exportToExcel = async (data: WeighingSession[]) => {
     'Jam': item.time || '-',
     'Pembeli': item.buyer,
     'Sopir': item.driver,
-    'Total Berat (Kg)': Number((item.totalNetWeight || 0).toFixed(2)), // Ensure 2 decimal places logic but number type
+    'Total Berat (Kg)': parseFloat((item.totalNetWeight || 0).toFixed(2)), // Remove trailing zeros
     'Total Timbangan': item.totalColi || 0,
     'Harga Dasar': item.basePrice || 0,
     'Potongan CN': item.cnAmount || 0,

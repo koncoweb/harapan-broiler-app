@@ -93,10 +93,10 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
     setItems([...items, { id: newId, index: items.length + 1, grossWeight: 0 }]);
   };
 
-  // Helper to format number for display (with Indonesian comma)
+  // Helper to format number for display (with Indonesian comma, no trailing zeros)
   const formatWeightForDisplay = (weight: number) => {
     if (weight === 0) return '';
-    return weight.toString().replace('.', ',');
+    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
   };
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
@@ -165,6 +165,11 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
         })}
       </View>
     );
+  };
+
+  // Format weight without trailing zeros
+  const formatWeight = (weight: number) => {
+    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
   };
 
   // Kalkulasi Total
@@ -390,7 +395,7 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
             <View style={styles.summaryRow}>
               <View>
                 <Text style={styles.summaryLabel}>TOTAL BERAT</Text>
-                <Text style={styles.summaryValueBig}>{totalNetWeight.toFixed(2).replace('.', ',')} Kg</Text>
+                <Text style={styles.summaryValueBig}>{formatWeight(totalNetWeight)} Kg</Text>
                 <Text style={styles.summarySub}>{items.filter(i => i.grossWeight > 0).length} Timbangan</Text>
               </View>
               <View style={{alignItems: 'flex-end'}}>

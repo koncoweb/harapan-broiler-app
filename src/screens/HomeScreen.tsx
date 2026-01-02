@@ -219,6 +219,10 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
   };
 
+  const formatWeight = (weight: number) => {
+    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
+  };
+
   const renderSessionItem = ({ item }: { item: WeighingSession }) => (
     <Card style={styles.compactCard}>
       <Card.Content style={styles.compactCardContent}>
@@ -226,7 +230,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           <View style={styles.compactCardLeft}>
             <Text style={styles.compactCardTitle}>{item.buyer}</Text>
             <Text style={styles.compactCardSubtitle}>
-              {(item.totalNetWeight || 0).toFixed(2).replace('.', ',')} Kg • {item.totalColi || 0} Timbangan
+              {formatWeight(item.totalNetWeight || 0)} Kg • {item.totalColi || 0} Timbangan
             </Text>
           </View>
           <View style={styles.compactCardRight}>

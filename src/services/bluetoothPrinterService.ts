@@ -159,9 +159,9 @@ const formatCurrency = (amount: number): string => {
   }).format(amount);
 };
 
-// Format weight with Indonesian decimal
+// Format weight with Indonesian decimal, remove trailing zeros
 const formatWeight = (weight: number): string => {
-  return weight.toFixed(2).replace('.', ',');
+  return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
 };
 
 // Print receipt using ESC/POS commands

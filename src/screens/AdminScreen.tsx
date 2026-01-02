@@ -167,6 +167,11 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
   };
 
+  // Format weight without trailing zeros
+  const formatWeight = (weight: number) => {
+    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
+  };
+
   // Web Date Picker Helper
   const WebDatePicker = ({ value, onChange, label }: { value: string, onChange: (val: string) => void, label: string }) => {
     if (Platform.OS !== 'web') return null;
@@ -309,7 +314,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Total Berat:</Text>
-                    <Text style={styles.detailValue}>{(item.totalNetWeight || 0).toFixed(2).replace('.', ',')} Kg</Text>
+                    <Text style={styles.detailValue}>{formatWeight(item.totalNetWeight || 0)} Kg</Text>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Total Timbangan:</Text>
