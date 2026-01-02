@@ -5,7 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, WeighingItem, WeighingSession, FarmSettings } from '../types';
 import { db, auth } from '../config/firebaseConfig';
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
-import { printReceipt } from '../services/printerService';
+import { printReceiptAuto } from '../services/printerService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 type CreateNotaScreenProps = {
@@ -212,8 +212,8 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
       const docRef = await addDoc(collection(db, 'weighing_sessions'), newSession);
       const savedSession = { id: docRef.id, ...newSession };
 
-      // Print Struk
-      await printReceipt(savedSession, settings || undefined);
+      // Print Struk dengan Auto-detect (Bluetooth atau System)
+      await printReceiptAuto(savedSession, settings || undefined);
 
       Alert.alert('Sukses', 'Nota berhasil disimpan dan dicetak', [
         { text: 'OK', onPress: () => navigation.goBack() }

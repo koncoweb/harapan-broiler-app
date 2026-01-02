@@ -6,7 +6,7 @@ import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/fi
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, WeighingSession, FarmSettings, UserData } from '../types';
 import { signOut } from 'firebase/auth';
-import { printReceipt, shareReceipt } from '../services/printerService';
+import { printReceiptAuto, shareReceipt } from '../services/printerService';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -239,7 +239,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         <IconButton 
           icon="printer" 
           size={18} 
-          onPress={() => printReceipt(item, settings || undefined)} 
+          onPress={() => printReceiptAuto(item, settings || undefined)} 
         />
         <IconButton 
           icon="share-variant" 
