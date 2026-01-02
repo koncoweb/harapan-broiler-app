@@ -64,6 +64,9 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
     { id: '3', index: 3, grossWeight: 0 },
   ]); // Default 3 rows
 
+  // State untuk menyimpan input text sementara (untuk menampilkan koma saat mengetik)
+  const [inputValues, setInputValues] = useState<{[key: string]: string}>({});
+
   const [loading, setLoading] = useState(false);
 
   // Effect untuk menghitung Harga Bersih
@@ -73,8 +76,14 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
     setFinalPrice(Math.max(0, hrg - cn));
   }, [basePrice, cnAmount]);
 
-  // Helper untuk update item
+  // Helper untuk update item dengan dukungan input text sementara
   const updateItem = (id: string, field: 'grossWeight', value: string) => {
+    // Simpan input text sementara untuk display
+    setInputValues(prev => ({
+      ...prev,
+      [id]: value
+    }));
+
     // Convert Indonesian comma format to dot format for storage
     const normalizedValue = value.replace(',', '.');
     const numericValue = parseFloat(normalizedValue) || 0;
@@ -86,6 +95,26 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
       return item;
     });
     setItems(newItems);
+  };
+
+  // Helper untuk mendapatkan nilai display (prioritas input text, fallback ke formatted number)
+  const getDisplayValue = (itemId: string, weight: number) => {
+    // Jika ada input text sementara, gunakan itu
+    if (inputValues[itemId] !== undefined && inputValues[itemId] !== '') {
+      return inputValues[itemId];
+    }
+    // Jika tidak ada input atau kosong, format dari number
+    return formatWeightForDisplay(weight);
+  };
+
+  // Helper untuk clear input text saat focus hilang
+  const handleInputBlur = (itemId: string, weight: number) => {
+    // Clear input text sementara, biarkan display menggunakan formatted number
+    setInputValues(prev => {
+      const newValues = { ...prev };
+      delete newValues[itemId];
+      return newValues;
+    });
   };
 
   const addNewRow = () => {
@@ -374,8 +403,9 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
               <View key={item.id} style={styles.gridItem}>
                 <TextInput
                   label={`${item.index}. Berat (Kg)`}
-                  value={formatWeightForDisplay(item.grossWeight)}
+                  value={getDisplayValue(item.id, item.grossWeight)}
                   onChangeText={(val) => updateItem(item.id, 'grossWeight', val)}
+                  onBlur={() => handleInputBlur(item.id, item.grossWeight)}
                   keyboardType="numeric"
                   mode="outlined"
                   dense
