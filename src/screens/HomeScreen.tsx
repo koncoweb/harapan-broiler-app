@@ -254,6 +254,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     <View style={styles.container}>
       <Appbar.Header style={[styles.header, {backgroundColor: '#1B5E20'}]}>
         <Appbar.Content title={settings?.farmName || "Harapan Broiler"} titleStyle={{color: 'white', fontWeight: 'bold'}} />
+        <Appbar.Action icon="bluetooth" color="white" onPress={() => navigation.navigate('BluetoothSettings')} />
         {userRole === 'admin' && (
           <Appbar.Action icon="shield-account" color="white" onPress={() => navigation.navigate('Admin')} />
         )}

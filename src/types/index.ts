@@ -6,6 +6,7 @@ export type RootStackParamList = {
   Home: undefined;
   CreateNota: undefined;
   Admin: undefined;
+  BluetoothSettings: undefined;
 };
 
 export interface WeighingItem {
