@@ -497,18 +497,35 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
             <View style={[styles.row, { alignItems: 'center' }]}>
               <View style={[styles.col, { flex: 0.6 }]}>
-                <TextInput
-                  label="Jumlah Bayar (Rp)"
-                  value={amountPaid}
-                  onChangeText={setAmountPaid}
-                  keyboardType="numeric"
-                  mode="outlined"
-                  dense
-                  style={styles.input}
-                  textColor="black"
-                  theme={{ colors: { background: 'white' } }}
-                  placeholder="0,00"
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TextInput
+                    label="Jumlah Bayar (Rp)"
+                    value={amountPaid}
+                    onChangeText={setAmountPaid}
+                    keyboardType="numeric"
+                    mode="outlined"
+                    dense
+                    style={[styles.input, { flex: 1 }]}
+                    textColor="black"
+                    theme={{ colors: { background: 'white' } }}
+                    placeholder="0,00"
+                  />
+                  <TouchableOpacity 
+                    onPress={() => setAmountPaid(formatIndonesianNumber(totalAmount))}
+                    style={{ 
+                      marginLeft: 8, 
+                      backgroundColor: '#E8F5E9', 
+                      padding: 10, 
+                      borderRadius: 4,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: '#4CAF50'
+                    }}
+                  >
+                    <Text style={{ color: '#2E7D32', fontWeight: 'bold', fontSize: 12 }}>LUNAS</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <View style={[styles.col, { flex: 0.4, alignItems: 'flex-end' }]}>
                 <Text style={{

@@ -1,10 +1,10 @@
 import React, { useEffect, useState, createElement } from 'react';
 import { View, StyleSheet, Alert, ScrollView, TouchableOpacity, Platform, LayoutAnimation, UIManager } from 'react-native';
-import { Appbar, Text, ActivityIndicator, TextInput, Button, IconButton, Card, Divider, useTheme, Portal, Modal } from 'react-native-paper';
+import { Appbar, Text, ActivityIndicator, TextInput, Button, IconButton, Card, Divider, useTheme, Portal, Modal, Chip } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, UserData, WeighingSession, FarmSettings } from '../types';
 import { auth, db } from '../config/firebaseConfig';
-import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot, writeBatch, deleteDoc } from 'firebase/firestore';
 import { printReceipt, printReceiptAuto } from '../services/printerService';
 import { exportToExcel } from '../services/excelService';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -27,6 +27,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
   const [filteredSessions, setFilteredSessions] = useState<WeighingSession[]>([]);
   const [settings, setSettings] = useState<FarmSettings | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Settings Modal State
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
@@ -39,6 +40,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterBuyer, setFilterBuyer] = useState('');
   const [filterDriver, setFilterDriver] = useState('');
+  const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>(''); // '' means all
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
@@ -118,6 +120,12 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
     if (filterDriver) {
       result = result.filter(s => s.driver.toLowerCase().includes(filterDriver.toLowerCase()));
     }
+    if (filterPaymentStatus) {
+      result = result.filter(s => {
+        const status = s.paymentStatus || 'Belum Lunas';
+        return status === filterPaymentStatus;
+      });
+    }
 
     // Sort by Date and Time Descending
     result.sort((a, b) => {
@@ -132,7 +140,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
     });
 
     setFilteredSessions(result);
-  }, [sessions, filterStartDate, filterEndDate, filterBuyer, filterDriver]);
+  }, [sessions, filterStartDate, filterEndDate, filterBuyer, filterDriver, filterPaymentStatus]);
 
   const handleStartDateChange = (event: any, selectedDate?: Date) => {
     setShowStartDatePicker(false);
@@ -183,6 +191,74 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
 
   const handleEditSession = (session: WeighingSession) => {
     navigation.navigate('CreateNota', { session });
+  };
+
+  const handleDeleteSession = (session: WeighingSession) => {
+    Alert.alert(
+      'Konfirmasi Hapus',
+      `Hapus data ${session.buyer} (${session.date})?`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, 'weighing_sessions', session.id));
+            } catch (error) {
+              console.error("Error deleting session:", error);
+              Alert.alert('Error', 'Gagal menghapus data');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDeleteFiltered = async () => {
+    if (filteredSessions.length === 0) {
+      Alert.alert('Info', 'Tidak ada data untuk dihapus');
+      return;
+    }
+
+    Alert.alert(
+      'Konfirmasi Hapus',
+      `Apakah Anda yakin ingin menghapus ${filteredSessions.length} data yang terfilter? Tindakan ini tidak dapat dibatalkan.`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              // Batch delete (chunked for safety if > 500)
+              const batchSize = 500;
+              const chunks = [];
+              for (let i = 0; i < filteredSessions.length; i += batchSize) {
+                chunks.push(filteredSessions.slice(i, i + batchSize));
+              }
+
+              for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(session => {
+                  const docRef = doc(db, 'weighing_sessions', session.id);
+                  batch.delete(docRef);
+                });
+                await batch.commit();
+              }
+              
+              Alert.alert('Sukses', `${filteredSessions.length} data berhasil dihapus`);
+            } catch (error) {
+              console.error("Error deleting sessions:", error);
+              Alert.alert('Error', 'Gagal menghapus data');
+            } finally {
+              setDeleting(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleExport = async () => {
@@ -304,6 +380,44 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
             theme={{ colors: { background: 'white' } }}
           />
         </View>
+
+        {/* Payment Status Filter */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>Status Pembayaran:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <Chip 
+              selected={filterPaymentStatus === ''} 
+              onPress={() => setFilterPaymentStatus('')}
+              showSelectedOverlay
+            >
+              Semua
+            </Chip>
+            <Chip 
+              selected={filterPaymentStatus === 'Lunas'} 
+              onPress={() => setFilterPaymentStatus('Lunas')}
+              showSelectedOverlay
+              textStyle={{ color: '#2E7D32' }}
+            >
+              Lunas
+            </Chip>
+            <Chip 
+              selected={filterPaymentStatus === 'Sebagian'} 
+              onPress={() => setFilterPaymentStatus('Sebagian')}
+              showSelectedOverlay
+              textStyle={{ color: '#F57C00' }}
+            >
+              Sebagian
+            </Chip>
+            <Chip 
+              selected={filterPaymentStatus === 'Belum Lunas'} 
+              onPress={() => setFilterPaymentStatus('Belum Lunas')}
+              showSelectedOverlay
+              textStyle={{ color: '#C62828' }}
+            >
+              Belum Lunas
+            </Chip>
+          </ScrollView>
+        </View>
         
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Button mode="text" onPress={() => {
@@ -311,41 +425,119 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
             setFilterEndDate('');
             setFilterBuyer('');
             setFilterDriver('');
+            setFilterPaymentStatus('');
           }} compact textColor={theme.colors.primary}>Reset Filter</Button>
 
-          <Button 
-            mode="contained" 
-            onPress={handleExport} 
-            loading={exporting}
-            disabled={exporting || filteredSessions.length === 0}
-            icon="file-excel"
-            buttonColor="#2E7D32"
-            compact
-          >
-            Ekspor Excel
-          </Button>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Button 
+              mode="contained" 
+              onPress={handleDeleteFiltered} 
+              loading={deleting}
+              disabled={deleting || filteredSessions.length === 0}
+              icon="delete"
+              buttonColor="#D32F2F"
+              compact
+            >
+              Hapus ({filteredSessions.length})
+            </Button>
+
+            <Button 
+              mode="contained" 
+              onPress={handleExport} 
+              loading={exporting}
+              disabled={exporting || filteredSessions.length === 0}
+              icon="file-excel"
+              buttonColor="#2E7D32"
+              compact
+            >
+              Ekspor Excel
+            </Button>
+          </View>
         </View>
       </View>
 
       <View style={styles.tableHeader}>
-        <Text style={[styles.headerCell, { flex: 0.9 }]}>Tanggal</Text>
-        <Text style={[styles.headerCell, { flex: 0.5, textAlign: 'center' }]}>Jam</Text>
-        <Text style={[styles.headerCell, { flex: 1.4 }]}>Pembeli</Text>
-        <Text style={[styles.headerCell, { flex: 1.2, textAlign: 'right' }]}>Total (Rp)</Text>
+        <Text style={[styles.headerCell, { flex: 0.8 }]}>Tanggal</Text>
+        <Text style={[styles.headerCell, { flex: 1.5 }]}>Pembeli / Status</Text>
+        <Text style={[styles.headerCell, { flex: 1.5, textAlign: 'right' }]}>Tagihan</Text>
+        <View style={{ width: 40 }} /> 
       </View>
 
       <ScrollView contentContainerStyle={styles.listContainer}>
         {filteredSessions.map((item) => {
           const isExpanded = expandedId === item.id;
+          const status = item.paymentStatus || 'Belum Lunas';
+          const isLunas = status === 'Lunas';
+          const isSebagian = status === 'Sebagian';
+          
+          let statusColors = { bg: '#FFEBEE', text: '#C62828' }; // Default Belum Lunas (Red)
+          if (isLunas) statusColors = { bg: '#E8F5E9', text: '#2E7D32' }; // Green
+          if (isSebagian) statusColors = { bg: '#FFF3E0', text: '#EF6C00' }; // Orange
+
           return (
             <Card key={item.id} style={styles.card} onPress={() => toggleExpand(item.id)}>
               <View style={styles.cardRow}>
-                <Text style={[styles.cell, { flex: 0.9 }]}>{item.date}</Text>
-                <Text style={[styles.cell, { flex: 0.5, textAlign: 'center', color: '#666' }]}>{item.time || '-'}</Text>
-                <Text style={[styles.cell, { flex: 1.4, fontWeight: 'bold' }]}>{item.buyer}</Text>
-                <Text style={[styles.cell, { flex: 1.2, textAlign: 'right', fontWeight: 'bold', color: 'green' }]}>
-                  {formatCurrency(item.totalAmount || 0)}
-                </Text>
+                {/* Date & Time Column */}
+                <View style={[styles.cell, { flex: 0.8 }]}>
+                  <Text style={{ fontSize: 13, fontWeight: '500' }}>{item.date}</Text>
+                  <Text style={{ fontSize: 12, color: '#666' }}>{item.time || '-'}</Text>
+                </View>
+
+                {/* Buyer & Status Column */}
+                <View style={[styles.cell, { flex: 1.5 }]}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 14, marginBottom: 4 }}>{item.buyer}</Text>
+                  <View style={{ 
+                    alignSelf: 'flex-start',
+                    backgroundColor: statusColors.bg,
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    borderRadius: 12,
+                  }}>
+                    <Text style={{ color: statusColors.text, fontSize: 10, fontWeight: 'bold' }}>
+                      {status.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Price Column */}
+                <View style={[styles.cell, { flex: 1.5, alignItems: 'flex-end' }]}>
+                  {/* Total Tagihan */}
+                  <Text style={{ 
+                    fontWeight: 'bold', 
+                    fontSize: 14, 
+                    color: isLunas ? '#2E7D32' : '#333' 
+                  }}>
+                    {formatCurrency(item.totalAmount || 0)}
+                  </Text>
+
+                  {/* Partial Payment Details */}
+                  {isSebagian && (
+                    <>
+                      <Text style={{ fontSize: 11, color: '#666', marginTop: 1 }}>
+                        Bayar: {formatCurrency(item.amountPaid || 0)}
+                      </Text>
+                      <Text style={{ fontSize: 13, color: '#D32F2F', fontWeight: 'bold', marginTop: 1 }}>
+                        Sisa: {formatCurrency((item.totalAmount || 0) - (item.amountPaid || 0))}
+                      </Text>
+                    </>
+                  )}
+                  
+                  {/* Belum Lunas Info (Optional, just explicit red text) */}
+                  {!isLunas && !isSebagian && (
+                     <Text style={{ fontSize: 11, color: '#D32F2F', marginTop: 1 }}>
+                       Belum Dibayar
+                     </Text>
+                  )}
+                </View>
+
+                {/* Delete Action */}
+                <IconButton
+                  icon="delete"
+                  size={20}
+                  iconColor="#D32F2F"
+                  onPress={() => handleDeleteSession(item)}
+                  style={{ margin: 0 }}
+                />
               </View>
 
               {isExpanded && (
@@ -564,8 +756,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cell: {
-    fontSize: 14,
-    color: '#212121',
+    // fontSize and color removed to fix ViewStyle type error
   },
   expandedContent: {
     paddingHorizontal: 16,
