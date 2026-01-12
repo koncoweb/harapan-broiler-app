@@ -2,17 +2,23 @@ import React, { useState, useEffect, createElement } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Platform } from 'react-native';
 import { Appbar, TextInput, Button, Text, Card, DataTable, Divider } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList, WeighingItem, WeighingSession, FarmSettings } from '../types';
 import { db, auth } from '../config/firebaseConfig';
-import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, setDoc, doc, getDoc } from 'firebase/firestore';
 import { printReceiptAuto } from '../services/printerService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 type CreateNotaScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateNota'>;
+  route: RouteProp<RootStackParamList, 'CreateNota'>;
 };
 
-export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) {
+export default function CreateNotaScreen({ navigation, route }: CreateNotaScreenProps) {
+  // Check if editing
+  const editingSession = route.params?.session;
+  const isEditing = !!editingSession;
+
   // A. Data Umum
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -27,7 +33,7 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
   const [driver, setDriver] = useState('');
   const [settings, setSettings] = useState<FarmSettings | null>(null);
 
-  // Fetch Settings
+  // Fetch Settings & Populate Data if Editing
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -40,12 +46,29 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
       }
     };
     fetchSettings();
-  }, []);
+
+    // Populate Data if Editing
+    if (editingSession) {
+      setDate(editingSession.date);
+      setTime(editingSession.time || defaultTime);
+      setBuyer(editingSession.buyer);
+      setDriver(editingSession.driver);
+      setBasePrice(formatIndonesianNumber(editingSession.basePrice));
+      setCnAmount(formatIndonesianNumber(editingSession.cnAmount));
+      setItems(editingSession.items || []);
+      setAmountPaid(editingSession.amountPaid ? formatIndonesianNumber(editingSession.amountPaid) : '');
+    }
+  }, [editingSession]);
 
   // B. Setingan Harga
   const [basePrice, setBasePrice] = useState('');
   const [cnAmount, setCnAmount] = useState('');
   const [finalPrice, setFinalPrice] = useState(0);
+
+  // D. Pembayaran
+  const [amountPaid, setAmountPaid] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState<'Lunas' | 'Belum Lunas' | 'Sebagian'>('Belum Lunas');
+
 
   // Helper functions for Indonesian number format
   const parseIndonesianNumber = (value: string) => {
@@ -75,6 +98,29 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
     const cn = parseIndonesianNumber(cnAmount);
     setFinalPrice(Math.max(0, hrg - cn));
   }, [basePrice, cnAmount]);
+
+  // Effect untuk Status Pembayaran
+  useEffect(() => {
+    const paid = parseIndonesianNumber(amountPaid);
+    // Note: totalAmount is calculated in render, but we need it here.
+    // Re-calculate local totalAmount or rely on render cycle?
+    // Safer to recalculate here or use the calculated value if it was state.
+    // Since totalAmount is derived in render, we can't easily put it in dependency array without infinite loop if we set state based on it.
+    // BUT, we can calculate it here.
+    const hrg = parseIndonesianNumber(basePrice);
+    const cn = parseIndonesianNumber(cnAmount);
+    const final = Math.max(0, hrg - cn);
+    const weight = items.reduce((acc, curr) => acc + curr.grossWeight, 0);
+    const total = final * weight;
+
+    if (paid >= total && total > 0) {
+      setPaymentStatus('Lunas');
+    } else if (paid > 0) {
+      setPaymentStatus('Sebagian');
+    } else {
+      setPaymentStatus('Belum Lunas');
+    }
+  }, [amountPaid, basePrice, cnAmount, items]);
 
   // Helper untuk update item dengan dukungan input text sementara
   const updateItem = (id: string, field: 'grossWeight', value: string) => {
@@ -124,8 +170,8 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
 
   // Helper to format number for display (with Indonesian comma, no trailing zeros)
   const formatWeightForDisplay = (weight: number) => {
-    if (weight === 0) return '';
-    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
+    if (!weight && weight !== 0) return '';
+    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(weight);
   };
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
@@ -198,7 +244,7 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
 
   // Format weight without trailing zeros
   const formatWeight = (weight: number) => {
-    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
+    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(weight);
   };
 
   // Kalkulasi Total
@@ -226,7 +272,7 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
     try {
       const validItems = items.filter(i => i.grossWeight > 0);
       
-      const newSession: Omit<WeighingSession, 'id'> = {
+      const sessionData: Omit<WeighingSession, 'id'> = {
         date,
         time,
         buyer,
@@ -238,23 +284,34 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
         totalNetWeight,
         totalAmount,
         totalColi: validItems.length,
+        amountPaid: parseIndonesianNumber(amountPaid),
+        paymentStatus,
         notes: "",
-        createdBy: auth.currentUser.email || auth.currentUser.uid,
-        createdAt: Date.now()
+        createdBy: isEditing ? (editingSession?.createdBy || auth.currentUser.email || auth.currentUser.uid) : (auth.currentUser.email || auth.currentUser.uid),
+        createdAt: isEditing ? (editingSession?.createdAt || Date.now()) : Date.now()
       };
 
-      const docRef = await addDoc(collection(db, 'weighing_sessions'), newSession);
-      const savedSession = { id: docRef.id, ...newSession };
+      let savedSession: WeighingSession;
+
+      if (isEditing && editingSession) {
+        // Update existing document
+        await setDoc(doc(db, 'weighing_sessions', editingSession.id), sessionData);
+        savedSession = { id: editingSession.id, ...sessionData };
+      } else {
+        // Create new document
+        const docRef = await addDoc(collection(db, 'weighing_sessions'), sessionData);
+        savedSession = { id: docRef.id, ...sessionData };
+      }
 
       // Print Struk dengan Auto-detect (Bluetooth atau System)
       await printReceiptAuto(savedSession, settings || undefined);
 
-      Alert.alert('Sukses', 'Nota berhasil disimpan dan dicetak', [
+      Alert.alert('Sukses', `Nota berhasil ${isEditing ? 'diperbarui' : 'disimpan'} dan dicetak`, [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', 'Gagal menyimpan nota');
+      Alert.alert('Error', `Gagal ${isEditing ? 'memperbarui' : 'menyimpan'} nota`);
     } finally {
       setLoading(false);
     }
@@ -264,7 +321,7 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
     <View style={styles.container}>
       <Appbar.Header style={styles.header}>
         <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-        <Appbar.Content title="FORM NOTA BARU" titleStyle={styles.headerTitle} />
+        <Appbar.Content title={isEditing ? "EDIT NOTA" : "FORM NOTA BARU"} titleStyle={styles.headerTitle} />
       </Appbar.Header>
 
       <ScrollView style={styles.content}>
@@ -436,6 +493,44 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
               </View>
             </View>
 
+            <Divider style={{ marginVertical: 12 }} />
+
+            <View style={[styles.row, { alignItems: 'center' }]}>
+              <View style={[styles.col, { flex: 0.6 }]}>
+                <TextInput
+                  label="Jumlah Bayar (Rp)"
+                  value={amountPaid}
+                  onChangeText={setAmountPaid}
+                  keyboardType="numeric"
+                  mode="outlined"
+                  dense
+                  style={styles.input}
+                  textColor="black"
+                  theme={{ colors: { background: 'white' } }}
+                  placeholder="0,00"
+                />
+              </View>
+              <View style={[styles.col, { flex: 0.4, alignItems: 'flex-end' }]}>
+                <Text style={{
+                  fontWeight: 'bold', 
+                  fontSize: 14,
+                  color: paymentStatus === 'Lunas' ? '#4CAF50' : paymentStatus === 'Sebagian' ? '#FFC107' : '#F44336'
+                }}>
+                  {paymentStatus.toUpperCase()}
+                </Text>
+                {paymentStatus !== 'Lunas' && (
+                  <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                    Sisa: {new Intl.NumberFormat('id-ID').format(Math.max(0, totalAmount - parseIndonesianNumber(amountPaid)))}
+                  </Text>
+                )}
+                {paymentStatus === 'Lunas' && parseIndonesianNumber(amountPaid) > totalAmount && (
+                  <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                    Kembali: {new Intl.NumberFormat('id-ID').format(parseIndonesianNumber(amountPaid) - totalAmount)}
+                  </Text>
+                )}
+              </View>
+            </View>
+
             <Button 
               mode="contained" 
               onPress={handleSaveAndPrint}
@@ -444,7 +539,7 @@ export default function CreateNotaScreen({ navigation }: CreateNotaScreenProps) 
               style={styles.saveButton}
               labelStyle={{ fontSize: 16, fontWeight: 'bold' }}
             >
-              SIMPAN
+              {isEditing ? 'UPDATE & CETAK' : 'SIMPAN'}
             </Button>
           </Card.Content>
         </Card>

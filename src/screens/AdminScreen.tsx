@@ -1,11 +1,11 @@
 import React, { useEffect, useState, createElement } from 'react';
 import { View, StyleSheet, Alert, ScrollView, TouchableOpacity, Platform, LayoutAnimation, UIManager } from 'react-native';
-import { Appbar, Text, ActivityIndicator, TextInput, Button, IconButton, Card, Divider, useTheme } from 'react-native-paper';
+import { Appbar, Text, ActivityIndicator, TextInput, Button, IconButton, Card, Divider, useTheme, Portal, Modal } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, UserData, WeighingSession, FarmSettings } from '../types';
 import { auth, db } from '../config/firebaseConfig';
-import { doc, getDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { printReceipt } from '../services/printerService';
+import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { printReceipt, printReceiptAuto } from '../services/printerService';
 import { exportToExcel } from '../services/excelService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -27,6 +27,12 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
   const [filteredSessions, setFilteredSessions] = useState<WeighingSession[]>([]);
   const [settings, setSettings] = useState<FarmSettings | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  // Settings Modal State
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [editFarmName, setEditFarmName] = useState('');
+  const [editFarmAddress, setEditFarmAddress] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // Filters
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -142,6 +148,43 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
     }
   };
 
+  const openSettingsModal = () => {
+    if (settings) {
+      setEditFarmName(settings.farmName);
+      setEditFarmAddress(settings.farmAddress);
+    }
+    setSettingsModalVisible(true);
+  };
+
+  const handleSaveSettings = async () => {
+    if (!editFarmName || !editFarmAddress) {
+      Alert.alert('Error', 'Nama dan Alamat harus diisi');
+      return;
+    }
+
+    setSavingSettings(true);
+    try {
+      const newSettings: FarmSettings = {
+        farmName: editFarmName,
+        farmAddress: editFarmAddress
+      };
+      
+      await setDoc(doc(db, 'settings', 'general'), newSettings);
+      setSettings(newSettings);
+      setSettingsModalVisible(false);
+      Alert.alert('Sukses', 'Pengaturan berhasil disimpan');
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      Alert.alert('Error', 'Gagal menyimpan pengaturan');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleEditSession = (session: WeighingSession) => {
+    navigation.navigate('CreateNota', { session });
+  };
+
   const handleExport = async () => {
     if (filteredSessions.length === 0) {
       Alert.alert('Info', 'Tidak ada data untuk diekspor');
@@ -213,6 +256,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
       <Appbar.Header style={styles.header}>
         <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
         <Appbar.Content title="REKAP NOTA" titleStyle={styles.headerTitle} />
+        <Appbar.Action icon="cog" onPress={openSettingsModal} color="white" />
       </Appbar.Header>
 
       <View style={styles.filterContainer}>
@@ -325,15 +369,50 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                     <Text style={styles.detailValue}>{formatCurrency(item.finalPrice || 0)} / Kg</Text>
                   </View>
 
-                  <Button 
-                    mode="contained" 
-                    icon="printer" 
-                    onPress={() => printReceipt(item, settings || undefined)}
-                    style={styles.printButton}
-                    buttonColor={theme.colors.primary}
-                  >
-                    Cetak Struk
-                  </Button>
+                  <Divider style={{ marginVertical: 8 }} />
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Status:</Text>
+                    <Text style={[styles.detailValue, { 
+                      fontWeight: 'bold',
+                      color: (item.paymentStatus || 'Belum Lunas') === 'Lunas' ? '#4CAF50' : 
+                             (item.paymentStatus === 'Sebagian' ? '#FFA000' : '#D32F2F')
+                    }]}>
+                      {(item.paymentStatus || 'Belum Lunas').toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Dibayar:</Text>
+                    <Text style={styles.detailValue}>{formatCurrency(item.amountPaid || 0)}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Sisa Tagihan:</Text>
+                    <Text style={styles.detailValue}>
+                      {formatCurrency(Math.max(0, (item.totalAmount || 0) - (item.amountPaid || 0)))}
+                    </Text>
+                  </View>
+                  <Divider style={{ marginVertical: 8 }} />
+
+                  <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 8}}>
+                    <Button 
+                      mode="outlined" 
+                      icon="pencil" 
+                      onPress={() => handleEditSession(item)}
+                      style={[styles.printButton, {flex: 1, borderColor: theme.colors.primary}]}
+                      textColor={theme.colors.primary}
+                    >
+                      Edit
+                    </Button>
+
+                    <Button 
+                      mode="contained" 
+                      icon="printer" 
+                      onPress={() => printReceiptAuto(item, settings || undefined)}
+                      style={[styles.printButton, {flex: 1}]}
+                      buttonColor={theme.colors.primary}
+                    >
+                      Cetak
+                    </Button>
+                  </View>
                 </View>
               )}
             </Card>
@@ -356,6 +435,35 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
           onChange={handleEndDateChange}
         />
       )}
+
+      <Portal>
+        <Modal visible={settingsModalVisible} onDismiss={() => setSettingsModalVisible(false)} contentContainerStyle={styles.modalContent}>
+          <Card>
+            <Card.Title title="Pengaturan Kandang" />
+            <Card.Content>
+              <TextInput
+                label="Nama Kandang"
+                value={editFarmName}
+                onChangeText={setEditFarmName}
+                mode="outlined"
+                style={styles.modalInput}
+              />
+              <TextInput
+                label="Alamat Kandang"
+                value={editFarmAddress}
+                onChangeText={setEditFarmAddress}
+                mode="outlined"
+                style={styles.modalInput}
+                multiline
+              />
+            </Card.Content>
+            <Card.Actions>
+              <Button onPress={() => setSettingsModalVisible(false)}>Batal</Button>
+              <Button mode="contained" onPress={handleSaveSettings} loading={savingSettings}>Simpan</Button>
+            </Card.Actions>
+          </Card>
+        </Modal>
+      </Portal>
     </View>
   );
 }
@@ -485,5 +593,13 @@ const styles = StyleSheet.create({
   },
   printButton: {
     marginTop: 12,
+  },
+  modalContent: {
+    padding: 20,
+    margin: 20,
+  },
+  modalInput: {
+    marginBottom: 12,
+    backgroundColor: 'white',
   }
 });

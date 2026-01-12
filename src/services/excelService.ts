@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import { WeighingSession } from '../types';
@@ -23,7 +23,10 @@ export const exportToExcel = async (data: WeighingSession[]) => {
     'Harga Dasar': item.basePrice || 0,
     'Potongan CN': item.cnAmount || 0,
     'Harga Bersih': item.finalPrice || 0,
-    'Total Bayar': item.totalAmount || 0,
+    'Total Tagihan': item.totalAmount || 0,
+    'Jumlah Bayar': item.amountPaid || 0,
+    'Sisa Tagihan': (item.totalAmount || 0) - (item.amountPaid || 0),
+    'Status': item.paymentStatus || 'Belum Lunas',
     'Dibuat Oleh': item.createdBy
   }));
 
@@ -42,7 +45,10 @@ export const exportToExcel = async (data: WeighingSession[]) => {
     { wch: 12 }, // Harga Dasar
     { wch: 12 }, // CN
     { wch: 12 }, // Harga Bersih
-    { wch: 15 }, // Total Bayar
+    { wch: 15 }, // Total Tagihan
+    { wch: 15 }, // Jumlah Bayar
+    { wch: 15 }, // Sisa Tagihan
+    { wch: 15 }, // Status
     { wch: 25 }, // Dibuat Oleh
   ];
   ws['!cols'] = colWidths;
@@ -66,10 +72,10 @@ export const exportToExcel = async (data: WeighingSession[]) => {
     return true;
   } else {
     const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-    const uri = documentDirectory + filename;
+    const uri = FileSystem.documentDirectory + filename;
     
-    await writeAsStringAsync(uri, wbout, {
-      encoding: EncodingType.Base64
+    await FileSystem.writeAsStringAsync(uri, wbout, {
+      encoding: FileSystem.EncodingType.Base64
     });
 
     if (await Sharing.isAvailableAsync()) {

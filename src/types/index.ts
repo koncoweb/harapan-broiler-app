@@ -4,7 +4,7 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   Home: undefined;
-  CreateNota: undefined;
+  CreateNota: { session?: WeighingSession } | undefined;
   Admin: undefined;
   BluetoothSettings: undefined;
 };
@@ -28,6 +28,8 @@ export interface WeighingSession {
   totalNetWeight: number; // Total Berat
   totalAmount: number;  // Total Bayar
   totalColi: number;   // Total Items/Keranjang
+  amountPaid?: number; // Jumlah yang dibayarkan
+  paymentStatus?: 'Lunas' | 'Belum Lunas' | 'Sebagian'; // Status pembayaran
   notes: string;       // Catatan
   createdBy: string;   // email or uid
   createdAt: number | Date; // Timestamp

@@ -271,9 +271,26 @@ export const printBluetoothReceipt = async (
     await BluetoothEscposPrinter.printText('--------------------------------\n', {});
 
     // Total Bayar - Bold
-    await BluetoothEscposPrinter.printText(`TOTAL BAYAR : ${formatCurrency(session.totalAmount)}\n`, {
+    await BluetoothEscposPrinter.printText(`TOTAL TAGIHAN : ${formatCurrency(session.totalAmount)}\n`, {
       widthtimes: 1,
       heigthtimes: 1,
+      fonttype: 1,
+    });
+
+    // Payment Details
+    const amountPaid = session.amountPaid || 0;
+    const remaining = session.totalAmount - amountPaid;
+    const status = session.paymentStatus || (amountPaid >= session.totalAmount ? 'Lunas' : amountPaid > 0 ? 'Sebagian' : 'Belum Lunas');
+
+    await BluetoothEscposPrinter.printText(`DIBAYAR       : ${formatCurrency(amountPaid)}\n`, {});
+    
+    if (remaining > 0) {
+      await BluetoothEscposPrinter.printText(`SISA TAGIHAN  : ${formatCurrency(remaining)}\n`, {});
+    } else {
+      await BluetoothEscposPrinter.printText(`KEMBALI       : ${formatCurrency(Math.abs(remaining))}\n`, {});
+    }
+
+    await BluetoothEscposPrinter.printText(`STATUS        : ${status.toUpperCase()}\n`, {
       fonttype: 1,
     });
 

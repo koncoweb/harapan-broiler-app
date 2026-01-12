@@ -189,6 +189,30 @@ export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSet
 
         <div class="divider"></div>
 
+        <div class="info-row">
+           <span>DIBAYAR:</span>
+           <span>${formatCurrency(session.amountPaid || 0)}</span>
+        </div>
+        
+        ${(session.totalAmount - (session.amountPaid || 0)) > 0 ? `
+        <div class="info-row">
+           <span>SISA TAGIHAN:</span>
+           <span>${formatCurrency((session.totalAmount - (session.amountPaid || 0)))}</span>
+        </div>
+        ` : `
+        <div class="info-row">
+           <span>KEMBALI:</span>
+           <span>${formatCurrency(Math.abs(session.totalAmount - (session.amountPaid || 0)))}</span>
+        </div>
+        `}
+        
+        <div class="info-row" style="font-weight: bold; margin-top: 5px;">
+           <span>STATUS:</span>
+           <span>${(session.paymentStatus || (session.amountPaid && session.amountPaid >= session.totalAmount ? 'Lunas' : session.amountPaid && session.amountPaid > 0 ? 'Sebagian' : 'Belum Lunas') || 'Belum Lunas').toUpperCase()}</span>
+        </div>
+
+        <div class="divider"></div>
+
         <div class="footer">
           *** TERIMA KASIH ***
         </div>
