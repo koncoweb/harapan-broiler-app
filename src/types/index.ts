@@ -7,6 +7,7 @@ export type RootStackParamList = {
   CreateNota: { session?: WeighingSession } | undefined;
   Admin: undefined;
   BluetoothSettings: undefined;
+  Sync: undefined;
 };
 
 export interface WeighingItem {

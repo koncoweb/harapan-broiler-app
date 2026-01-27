@@ -7,6 +7,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, WeighingSession, FarmSettings, UserData } from '../types';
 import { signOut } from 'firebase/auth';
 import { printReceiptAuto, shareReceipt } from '../services/printerService';
+import { useIsFocused } from '@react-navigation/native';
+import { OfflineStorageService } from '../services/offlineStorage';
+import NetInfo from '@react-native-community/netinfo';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -18,10 +21,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<FarmSettings | null>(null);
   const [userRole, setUserRole] = useState<'user' | 'admin' | null>(null);
-  const [showActivities, setShowActivities] = useState(true); // Toggle for activities section
-  const [searchQuery, setSearchQuery] = useState(''); // Search functionality
-  
-  // STATISTIK DIHAPUS DARI UI - DATA TETAP TERSIMPAN
+  const [showActivities, setShowActivities] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isConnected, setIsConnected] = useState<boolean | null>(null);
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     // Check authentication
@@ -77,6 +81,24 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const unsubscribeNetInfo = NetInfo.addEventListener(state => {
+      setIsConnected(state.isConnected ?? false);
+    });
+    return () => unsubscribeNetInfo();
+  }, []);
+
+  useEffect(() => {
+    if (isFocused) {
+      checkPendingItems();
+    }
+  }, [isFocused]);
+
+  const checkPendingItems = async () => {
+    const count = await OfflineStorageService.getPendingCount();
+    setPendingCount(count);
+  };
 
   // Advanced multi-search functionality
   useEffect(() => {
@@ -266,8 +288,31 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       </Appbar.Header>
 
       <ScrollView style={styles.content}>
-        {/* STATISTIK CARD DIHAPUS - HANYA INPUT DAN AKTIVITAS */}
-        
+        {((isConnected === false) || pendingCount > 0) && (
+          <Card style={styles.offlineBanner} onPress={() => navigation.navigate('Sync')}>
+            <Card.Content style={styles.offlineBannerContent}>
+              <View>
+                <Text style={styles.offlineBannerTitle}>
+                  {isConnected === false ? 'Mode Offline' : 'Data Belum Tersinkron'}
+                </Text>
+                {isConnected === false && pendingCount === 0 && (
+                  <Text style={styles.offlineBannerText}>
+                    Anda sedang offline. Data baru akan tersimpan di perangkat.
+                  </Text>
+                )}
+                {pendingCount > 0 && (
+                  <Text style={styles.offlineBannerText}>
+                    {pendingCount} data tersimpan di perangkat
+                  </Text>
+                )}
+              </View>
+              <Button mode="contained" buttonColor="white" textColor="#E65100" compact>
+                Sync
+              </Button>
+            </Card.Content>
+          </Card>
+        )}
+
         {/* Input Timbangan Baru CTA - Prominent */}
         <View style={styles.ctaContainer}>
           <FAB
@@ -376,6 +421,23 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#2E7D32',
+  },
+  offlineBanner: {
+    marginBottom: 16,
+    backgroundColor: '#E65100',
+  },
+  offlineBannerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  offlineBannerTitle: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  offlineBannerText: {
+    color: 'white',
+    fontSize: 12,
   },
   content: {
     flex: 1,

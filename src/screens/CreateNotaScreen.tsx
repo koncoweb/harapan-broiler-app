@@ -8,6 +8,8 @@ import { db, auth } from '../config/firebaseConfig';
 import { collection, addDoc, setDoc, doc, getDoc } from 'firebase/firestore';
 import { printReceiptAuto } from '../services/printerService';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import NetInfo from '@react-native-community/netinfo';
+import { OfflineStorageService } from '../services/offlineStorage';
 
 type CreateNotaScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateNota'>;
@@ -293,22 +295,46 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
       let savedSession: WeighingSession;
 
-      if (isEditing && editingSession) {
-        // Update existing document
-        await setDoc(doc(db, 'weighing_sessions', editingSession.id), sessionData);
-        savedSession = { id: editingSession.id, ...sessionData };
+      const netState = await NetInfo.fetch();
+      const isOffline = !netState.isConnected;
+
+      if (isOffline) {
+        // OFFLINE MODE
+        if (isEditing && editingSession) {
+          savedSession = { id: editingSession.id, ...sessionData };
+        } else {
+          // Generate temporary offline ID
+          const offlineId = `offline_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+          savedSession = { id: offlineId, ...sessionData };
+        }
+
+        await OfflineStorageService.saveSession(savedSession);
+        
+        // Print Struk (Bluetooth works offline)
+        await printReceiptAuto(savedSession, settings || undefined);
+
+        Alert.alert('Tersimpan Offline', 'Data tersimpan di perangkat. Mohon sinkronisasi saat online.', [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
       } else {
-        // Create new document
-        const docRef = await addDoc(collection(db, 'weighing_sessions'), sessionData);
-        savedSession = { id: docRef.id, ...sessionData };
+        // ONLINE MODE (Existing Logic)
+        if (isEditing && editingSession) {
+          // Update existing document
+          await setDoc(doc(db, 'weighing_sessions', editingSession.id), sessionData);
+          savedSession = { id: editingSession.id, ...sessionData };
+        } else {
+          // Create new document
+          const docRef = await addDoc(collection(db, 'weighing_sessions'), sessionData);
+          savedSession = { id: docRef.id, ...sessionData };
+        }
+
+        // Print Struk
+        await printReceiptAuto(savedSession, settings || undefined);
+
+        Alert.alert('Sukses', `Nota berhasil ${isEditing ? 'diperbarui' : 'disimpan'} dan dicetak`, [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
       }
-
-      // Print Struk dengan Auto-detect (Bluetooth atau System)
-      await printReceiptAuto(savedSession, settings || undefined);
-
-      Alert.alert('Sukses', `Nota berhasil ${isEditing ? 'diperbarui' : 'disimpan'} dan dicetak`, [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
     } catch (error: any) {
       console.error(error);
       Alert.alert('Error', `Gagal ${isEditing ? 'memperbarui' : 'menyimpan'} nota`);

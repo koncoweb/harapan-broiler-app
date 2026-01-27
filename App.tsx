@@ -12,6 +12,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import CreateNotaScreen from './src/screens/CreateNotaScreen';
 import AdminScreen from './src/screens/AdminScreen';
 import BluetoothSettingsScreen from './src/screens/BluetoothSettingsScreen';
+import SyncScreen from './src/screens/SyncScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -32,6 +33,7 @@ export default function App() {
             <Stack.Screen name="CreateNota" component={CreateNotaScreen} />
             <Stack.Screen name="Admin" component={AdminScreen} />
             <Stack.Screen name="BluetoothSettings" component={BluetoothSettingsScreen} />
+            <Stack.Screen name="Sync" component={SyncScreen} />
           </Stack.Navigator>
         </NavigationContainer>
       </PaperProvider>
