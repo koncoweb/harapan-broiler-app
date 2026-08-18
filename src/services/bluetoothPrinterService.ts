@@ -215,7 +215,7 @@ export const printBluetoothReceipt = async (
   }
 
   try {
-    const farmName = settings?.farmName || 'HARAPAN BROILER';
+    const farmName = settings?.farmName || 'Asya Berkah';
     const farmAddress = settings?.farmAddress || 'Jln Sawang Ujung, Perum Griya Azna Indah No 73';
 
     const formattedDate = formatDateId(session.date);

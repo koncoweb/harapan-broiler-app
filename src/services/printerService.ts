@@ -12,7 +12,7 @@ export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSet
   const formattedDate = formatDateId(session.date);
   const timeString = session.time || '';
 
-  const farmName = settings?.farmName || "HARAPAN BROILER";
+  const farmName = settings?.farmName || "Asya Berkah";
   const farmAddress = settings?.farmAddress || "Jln Sawang Ujung, Perum Griya Azna Indah No 73";
 
   // Generate items in 2-column layout for space efficiency

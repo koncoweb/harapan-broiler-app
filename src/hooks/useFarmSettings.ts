@@ -5,7 +5,7 @@ import { db } from '../config/firebaseConfig';
 import { FarmSettings } from '../types';
 
 const DEFAULT_SETTINGS: FarmSettings = {
-  farmName: 'HARAPAN BROILER',
+  farmName: 'Asya Berkah',
   farmAddress: 'Jln Sawang Ujung, Perum Griya Azna Indah No 73',
 };
 

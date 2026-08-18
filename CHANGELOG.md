@@ -15,6 +15,8 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
 
 ### Changed
 - Branch `asyaberkah`: Mengganti konfigurasi Firebase dari project `quizzizclone` ke project `crmappbuilder` di `.env` dan `eas.json`.
+- Branch `asyaberkah`: Mengganti seluruh icon aplikasi dengan logo Asya Berkah.
+- Branch `asyaberkah`: Mengganti nama aplikasi menjadi "Asya Berkah", package Android menjadi `com.koncoweb.asyaberkah`, dan default farm name menjadi "Asya Berkah".
 - Memperbarui `requirement.md` agar mencakup fitur terbaru: edit data, status pembayaran, pencarian canggih, batch delete, dan export Excel.
 - Refactor Fase 2: State Management & Eliminasi Duplikasi Kode
   - Menambahkan `src/utils/format.ts` untuk fungsi format angka, berat, mata uang, dan tanggal.
