@@ -1,31 +1,36 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, FlatList, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, FlatList, Alert, Platform, Image } from 'react-native';
 import { Appbar, Card, Text, FAB, ActivityIndicator, Button, IconButton, TextInput } from 'react-native-paper';
-import { auth, db } from '../config/firebaseConfig';
-import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { auth } from '../config/firebaseConfig';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList, WeighingSession, FarmSettings, UserData } from '../types';
+import { RootStackParamList, WeighingSession } from '../types';
 import { signOut } from 'firebase/auth';
 import { printReceiptAuto, shareReceipt } from '../services/printerService';
 import { useIsFocused } from '@react-navigation/native';
 import { OfflineStorageService } from '../services/offlineStorage';
 import NetInfo from '@react-native-community/netinfo';
+import { useUserRole } from '../hooks/useUserRole';
+import { useFarmSettings } from '../hooks/useFarmSettings';
+import { useWeighingSessions } from '../hooks/useWeighingSessions';
+import { formatCurrency, formatWeight, formatDateId } from '../utils/format';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
 };
 
 export default function HomeScreen({ navigation }: HomeScreenProps) {
-  const [sessions, setSessions] = useState<WeighingSession[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<WeighingSession[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<FarmSettings | null>(null);
-  const [userRole, setUserRole] = useState<'user' | 'admin' | null>(null);
   const [showActivities, setShowActivities] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingCount, setPendingCount] = useState(0);
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const isFocused = useIsFocused();
+
+  const { role: userRole } = useUserRole();
+  const { settings } = useFarmSettings();
+  const { sessions, loading } = useWeighingSessions({
+    onError: () => Alert.alert('Error', 'Gagal memuat data'),
+  });
 
   useEffect(() => {
     // Check authentication
@@ -34,53 +39,8 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       return;
     }
 
-    // Fetch User Role
-    const fetchUserRole = async () => {
-      if (auth.currentUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as UserData;
-            setUserRole(userData.role);
-          }
-        } catch (error) {
-          console.error("Error fetching user role:", error);
-        }
-      }
-    };
-    fetchUserRole();
-
-    // Fetch Settings
-    const fetchSettings = async () => {
-      try {
-        const settingsDoc = await getDoc(doc(db, 'settings', 'general'));
-        if (settingsDoc.exists()) {
-          setSettings(settingsDoc.data() as FarmSettings);
-        }
-      } catch (error) {
-        console.error("Error fetching settings:", error);
-      }
-    };
-    fetchSettings();
-
-    // Subscribe to Weighing Sessions
-    const q = query(collection(db, 'weighing_sessions'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data: WeighingSession[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as WeighingSession));
-      setSessions(data);
-      setFilteredSessions(data); // Initialize filtered sessions
-      setLoading(false);
-    }, (error) => {
-      console.error(error);
-      Alert.alert('Error', 'Gagal memuat data');
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+    setFilteredSessions(sessions);
+  }, [sessions, navigation]);
 
   useEffect(() => {
     const unsubscribeNetInfo = NetInfo.addEventListener(state => {
@@ -130,7 +90,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                               `${day}-${month}`.includes(term);
         
         // Indonesian date format
-        const formattedDate = new Date(session.date).toLocaleDateString('id-ID');
+        const formattedDate = formatDateId(session.date);
         const formattedDateMatch = formattedDate.toLowerCase().includes(term);
         
         // Month names (Indonesian)
@@ -237,14 +197,6 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
-  };
-
-  const formatWeight = (weight: number) => {
-    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
-  };
-
   const renderSessionItem = ({ item }: { item: WeighingSession }) => (
     <Card style={styles.compactCard}>
       <Card.Content style={styles.compactCardContent}>
@@ -256,7 +208,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             </Text>
           </View>
           <View style={styles.compactCardRight}>
-            <Text style={styles.compactCardDate}>{new Date(item.date).toLocaleDateString('id-ID')}</Text>
+            <Text style={styles.compactCardDate}>{formatDateId(item.date)}</Text>
             <Text style={styles.compactCardPrice}>{formatCurrency(item.totalAmount || 0)}</Text>
           </View>
         </View>
@@ -278,14 +230,22 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header style={[styles.header, {backgroundColor: '#1B5E20'}]}>
-        <Appbar.Content title={settings?.farmName || "Harapan Broiler"} titleStyle={{color: 'white', fontWeight: 'bold'}} />
-        <Appbar.Action icon="bluetooth" color="white" onPress={() => navigation.navigate('BluetoothSettings')} />
-        {userRole === 'admin' && (
-          <Appbar.Action icon="shield-account" color="white" onPress={() => navigation.navigate('Admin')} />
-        )}
-        <Appbar.Action icon="logout" color="white" onPress={handleLogout} />
-      </Appbar.Header>
+      <View style={{ width: '100%', overflow: 'hidden', backgroundColor: '#1B5E20' }}>
+        <Image 
+          source={require('../../assets/header.png')} 
+          style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', opacity: 0.25 }]}
+          resizeMode="cover"
+          blurRadius={Platform.OS === 'ios' ? 5 : 2}
+        />
+        <Appbar.Header style={[styles.header, { backgroundColor: 'transparent', elevation: 0 }]}>
+          <Appbar.Content title={settings?.farmName || "Harapan Broiler"} titleStyle={{color: 'white', fontWeight: 'bold'}} />
+          <Appbar.Action icon="bluetooth" color="white" onPress={() => navigation.navigate('BluetoothSettings')} />
+          {userRole === 'admin' && (
+            <Appbar.Action icon="shield-account" color="white" onPress={() => navigation.navigate('Admin')} />
+          )}
+          <Appbar.Action icon="logout" color="white" onPress={handleLogout} />
+        </Appbar.Header>
+      </View>
 
       <ScrollView style={styles.content}>
         {((isConnected === false) || pendingCount > 0) && (
@@ -408,6 +368,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           </>
         )}
         
+        <Text style={styles.versionText}>Harapan Broiler v1.0.2 • Juni 2026</Text>
         <View style={{height: 100}} /> 
       </ScrollView>
     </View>
@@ -415,6 +376,13 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  versionText: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 10,
+    marginTop: 20,
+    marginBottom: -10,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',

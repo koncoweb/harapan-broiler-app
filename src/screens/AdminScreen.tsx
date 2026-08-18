@@ -2,12 +2,16 @@ import React, { useEffect, useState, createElement } from 'react';
 import { View, StyleSheet, Alert, ScrollView, TouchableOpacity, Platform, LayoutAnimation, UIManager } from 'react-native';
 import { Appbar, Text, ActivityIndicator, TextInput, Button, IconButton, Card, Divider, useTheme, Portal, Modal, Chip } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList, UserData, WeighingSession, FarmSettings } from '../types';
+import { RootStackParamList, WeighingSession, FarmSettings } from '../types';
 import { auth, db } from '../config/firebaseConfig';
-import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot, writeBatch, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { printReceipt, printReceiptAuto } from '../services/printerService';
 import { exportToExcel } from '../services/excelService';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useUserRole } from '../hooks/useUserRole';
+import { useFarmSettings } from '../hooks/useFarmSettings';
+import { useWeighingSessions } from '../hooks/useWeighingSessions';
+import { formatCurrency, formatWeight } from '../utils/format';
 
 if (Platform.OS === 'android') {
   if (UIManager.setLayoutAnimationEnabledExperimental) {
@@ -21,13 +25,13 @@ type AdminScreenProps = {
 
 export default function AdminScreen({ navigation }: AdminScreenProps) {
   const theme = useTheme();
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [sessions, setSessions] = useState<WeighingSession[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<WeighingSession[]>([]);
-  const [settings, setSettings] = useState<FarmSettings | null>(null);
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const { isAdmin, loading: roleLoading } = useUserRole();
+  const { settings, setSettings } = useFarmSettings();
+  const { sessions, loading: sessionsLoading } = useWeighingSessions();
 
   // Settings Modal State
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
@@ -53,56 +57,20 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
   };
 
   useEffect(() => {
-    const checkAdminAndFetchData = async () => {
-      if (!auth.currentUser) {
-        navigation.replace('Login');
-        return;
-      }
+    if (!auth.currentUser) {
+      navigation.replace('Login');
+      return;
+    }
 
-      try {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as UserData;
-          if (userData.role === 'admin') {
-            setIsAdmin(true);
-            
-            // Fetch Settings
-            const settingsDoc = await getDoc(doc(db, 'settings', 'general'));
-            if (settingsDoc.exists()) {
-              setSettings(settingsDoc.data() as FarmSettings);
-            }
+    if (!roleLoading && !isAdmin) {
+      Alert.alert('Akses Ditolak', 'Anda bukan admin!');
+      navigation.goBack();
+    }
+  }, [isAdmin, roleLoading, navigation]);
 
-            // Subscribe to Data
-            const q = query(collection(db, 'weighing_sessions'), orderBy('createdAt', 'desc'));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-              const data: WeighingSession[] = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-              } as WeighingSession));
-              setSessions(data);
-              setFilteredSessions(data);
-              setLoading(false);
-            });
-
-            return unsubscribe;
-          } else {
-            Alert.alert('Akses Ditolak', 'Anda bukan admin!');
-            navigation.goBack();
-          }
-        } else {
-          Alert.alert('Error', 'Data user tidak ditemukan');
-          navigation.goBack();
-        }
-      } catch (error) {
-        console.error("Error checking admin:", error);
-        Alert.alert('Error', 'Gagal memverifikasi hak akses');
-        navigation.goBack();
-        setLoading(false);
-      }
-    };
-
-    checkAdminAndFetchData();
-  }, []);
+  useEffect(() => {
+    setFilteredSessions(sessions);
+  }, [sessions]);
 
     // Filter Logic
   useEffect(() => {
@@ -282,15 +250,6 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
-  };
-
-  // Format weight without trailing zeros
-  const formatWeight = (weight: number) => {
-    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
-  };
-
   // Web Date Picker Helper
   const WebDatePicker = ({ value, onChange, label }: { value: string, onChange: (val: string) => void, label: string }) => {
     if (Platform.OS !== 'web') return null;
@@ -317,7 +276,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
     );
   };
 
-  if (loading) {
+  if (roleLoading || sessionsLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.colors.primary} />

@@ -1,6 +1,7 @@
 // src/services/bluetoothPrinterService.ts
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { WeighingSession, FarmSettings } from '../types';
+import { formatCurrency, formatWeight, formatDateId } from '../utils/format';
 
 // Conditional import untuk menghindari error di web
 let BluetoothManager: any = null;
@@ -22,6 +23,16 @@ export interface BluetoothDevice {
   name: string;
   address: string;
 }
+
+// Keep track of the currently connected printer address
+let connectedPrinterAddress: string | null = null;
+
+const showNotSupportedAlert = () => {
+  Alert.alert(
+    'Tidak Didukung',
+    'Printer thermal Bluetooth hanya didukung di perangkat Android. Silakan gunakan opsi cetak sistem atau bagikan struk sebagai PDF.'
+  );
+};
 
 // Check if Bluetooth is enabled
 export const isBluetoothEnabled = async (): Promise<boolean> => {
@@ -83,7 +94,7 @@ export const requestBluetoothPermissions = async (): Promise<boolean> => {
 // Scan for Bluetooth devices
 export const scanBluetoothDevices = async (): Promise<BluetoothDevice[]> => {
   if (Platform.OS !== 'android' || !BluetoothManager) {
-    Alert.alert('Not Supported', 'Bluetooth printing is only supported on Android');
+    showNotSupportedAlert();
     return [];
   }
 
@@ -120,14 +131,17 @@ export const scanBluetoothDevices = async (): Promise<BluetoothDevice[]> => {
 // Connect to Bluetooth printer
 export const connectToBluetoothPrinter = async (address: string): Promise<boolean> => {
   if (Platform.OS !== 'android' || !BluetoothManager) {
+    showNotSupportedAlert();
     return false;
   }
 
   try {
     await BluetoothManager.connect(address);
+    connectedPrinterAddress = address;
     return true;
   } catch (error) {
     console.error('Connection error:', error);
+    connectedPrinterAddress = null;
     Alert.alert('Connection Failed', 'Unable to connect to the printer');
     return false;
   }
@@ -136,13 +150,21 @@ export const connectToBluetoothPrinter = async (address: string): Promise<boolea
 // Disconnect from Bluetooth printer
 export const disconnectBluetoothPrinter = async (): Promise<void> => {
   if (Platform.OS !== 'android' || !BluetoothManager) {
+    showNotSupportedAlert();
+    return;
+  }
+
+  if (!connectedPrinterAddress) {
+    Alert.alert('Info', 'Tidak ada printer yang sedang terhubung');
     return;
   }
 
   try {
-    await BluetoothManager.unpair(await BluetoothManager.list()[0]?.address);
+    await BluetoothManager.unpair(connectedPrinterAddress);
+    connectedPrinterAddress = null;
   } catch (error) {
     console.error('Disconnect error:', error);
+    Alert.alert('Disconnect Failed', 'Gagal memutuskan koneksi printer');
   }
 };
 
@@ -152,28 +174,35 @@ export const isBluetoothPrinterConnected = async (): Promise<boolean> => {
     return false;
   }
 
+  if (!connectedPrinterAddress) {
+    return false;
+  }
+
   try {
-    const connected = await BluetoothManager.isBluetoothEnabled();
-    // Additional check: try to get connected device
-    return connected;
+    // First check if Bluetooth is enabled
+    const enabled = await BluetoothManager.isBluetoothEnabled();
+    if (!enabled) {
+      connectedPrinterAddress = null;
+      return false;
+    }
+
+    // Try to verify connection by listing connected/paired devices
+    const pairedDevices = await BluetoothManager.list();
+    const stillConnected = pairedDevices.some(
+      (device: any) => device.address === connectedPrinterAddress
+    );
+
+    if (!stillConnected) {
+      connectedPrinterAddress = null;
+    }
+
+    return stillConnected;
   } catch (error) {
+    console.error('Error checking printer connection:', error);
     return false;
   }
 };
 
-// Format currency for receipt
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-  }).format(amount);
-};
-
-// Format weight with Indonesian decimal, remove trailing zeros
-const formatWeight = (weight: number): string => {
-  return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
-};
 
 // Print receipt using ESC/POS commands
 export const printBluetoothReceipt = async (
@@ -181,7 +210,7 @@ export const printBluetoothReceipt = async (
   settings?: FarmSettings
 ): Promise<void> => {
   if (Platform.OS !== 'android' || !BluetoothEscposPrinter) {
-    Alert.alert('Not Supported', 'Bluetooth printing is only supported on Android');
+    showNotSupportedAlert();
     return;
   }
 
@@ -189,14 +218,7 @@ export const printBluetoothReceipt = async (
     const farmName = settings?.farmName || 'HARAPAN BROILER';
     const farmAddress = settings?.farmAddress || 'Jln Sawang Ujung, Perum Griya Azna Indah No 73';
 
-    // Parse date
-    const [year, month, day] = session.date.split('-').map(Number);
-    const dateObj = new Date(year, month - 1, day);
-    const formattedDate = dateObj.toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
+    const formattedDate = formatDateId(session.date);
 
     // Initialize printer
     await BluetoothEscposPrinter.printerInit();

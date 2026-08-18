@@ -6,27 +6,14 @@ import {
   isBluetoothPrinterConnected,
   printBluetoothReceipt
 } from './bluetoothPrinterService';
+import { formatCurrency, formatWeight, formatDateId } from '../utils/format';
 
 export const generateReceiptHtml = (session: WeighingSession, settings?: FarmSettings) => {
-  // Safe parsing of YYYY-MM-DD to Local Date
-  const [year, month, day] = session.date.split('-').map(Number);
-  const dateObj = new Date(year, month - 1, day);
-  const formattedDate = dateObj.toLocaleDateString('id-ID', {
-    day: 'numeric', month: 'long', year: 'numeric'
-  });
+  const formattedDate = formatDateId(session.date);
   const timeString = session.time || '';
 
   const farmName = settings?.farmName || "HARAPAN BROILER";
   const farmAddress = settings?.farmAddress || "Jln Sawang Ujung, Perum Griya Azna Indah No 73";
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
-  };
-
-  // Format weight without trailing zeros
-  const formatWeight = (weight: number) => {
-    return parseFloat(weight.toFixed(2)).toString().replace('.', ',');
-  };
 
   // Generate items in 2-column layout for space efficiency
   const generateItemsGrid = (items: any[]) => {

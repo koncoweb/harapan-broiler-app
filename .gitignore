@@ -34,6 +34,10 @@ yarn-error.*
 .env*.local
 .env
 
+# agent / private notes
+.agents/
+akun*.md
+
 # typescript
 *.tsbuildinfo
 

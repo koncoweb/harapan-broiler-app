@@ -5,18 +5,51 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDo6u_dh_HgZmrL95mxdzg0Aphnqi3Wu3M",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "quizzizclone.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "quizzizclone",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "quizzizclone.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "351924060350",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:351924060350:web:9db35f9d53f84cc9bc5eef"
+      }
     },
     "preview": {
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDo6u_dh_HgZmrL95mxdzg0Aphnqi3Wu3M",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "quizzizclone.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "quizzizclone",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "quizzizclone.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "351924060350",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:351924060350:web:9db35f9d53f84cc9bc5eef"
       }
     },
-    "production": {},
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDo6u_dh_HgZmrL95mxdzg0Aphnqi3Wu3M",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "quizzizclone.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "quizzizclone",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "quizzizclone.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "351924060350",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:351924060350:web:9db35f9d53f84cc9bc5eef"
+      }
+    },
     "production-apk": {
       "extends": "production",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDo6u_dh_HgZmrL95mxdzg0Aphnqi3Wu3M",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "quizzizclone.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "quizzizclone",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "quizzizclone.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "351924060350",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:351924060350:web:9db35f9d53f84cc9bc5eef"
       }
     }
   },

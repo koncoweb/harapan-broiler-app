@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, Dimensions, TouchableOpacity, Image } from 'react-native';
 import { TextInput, Button, Text, useTheme, Surface } from 'react-native-paper';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../config/firebaseConfig';
@@ -7,6 +7,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
+import { getErrorMessage } from '../utils/firebaseErrors';
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -22,21 +23,19 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
       Alert.alert('Peringatan', 'Mohon isi email dan password anda');
       return;
     }
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
       navigation.replace('Home');
     } catch (error: any) {
-      let errorMessage = 'Gagal masuk. Silakan coba lagi.';
-      if (error.code === 'auth/invalid-email') errorMessage = 'Format email tidak valid.';
-      if (error.code === 'auth/user-not-found') errorMessage = 'Pengguna tidak ditemukan.';
-      if (error.code === 'auth/wrong-password') errorMessage = 'Password salah.';
-      
-      Alert.alert('Login Gagal', errorMessage);
+      Alert.alert('Login Gagal', getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -54,8 +53,21 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           end={{ x: 1, y: 1 }}
           style={styles.headerGradient}
         >
+          <Image 
+            source={require('../../assets/header.png')} 
+            style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', opacity: 0.18 }]}
+            resizeMode="cover"
+            blurRadius={Platform.OS === 'ios' ? 5 : 2}
+          />
           <View style={styles.headerContent}>
-            <Text variant="headlineMedium" style={styles.headerTitle}>Harapan Broiler</Text>
+            <View style={styles.logoRow}>
+              <Image 
+                source={require('../../assets/icon.png')} 
+                style={styles.logoIcon}
+                resizeMode="contain"
+              />
+              <Text variant="headlineMedium" style={styles.headerTitle}>Harapan Broiler</Text>
+            </View>
             <Text variant="bodyLarge" style={styles.headerSubtitle}>Sistem Manajemen Digital</Text>
           </View>
         </LinearGradient>
@@ -81,6 +93,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               mode="outlined"
               style={styles.input}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               left={<TextInput.Icon icon="email-outline" color="#666" />}
               theme={{ colors: { primary: '#2E7D32', background: 'white' } }}
@@ -128,6 +141,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               <Text style={{ color: '#2E7D32', fontWeight: 'bold' }}>Daftar Sekarang</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.versionText}>Versi Juni 2026</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -135,6 +149,13 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  versionText: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 11,
+    marginTop: 8,
+    marginBottom: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F5F7FA',
@@ -151,17 +172,32 @@ const styles = StyleSheet.create({
   },
   headerGradient: {
     flex: 1,
+    width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
     paddingBottom: 40,
   },
   headerContent: {
     alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  logoIcon: {
+    width: 44,
+    height: 44,
+    marginRight: 10,
+    borderRadius: 10,
+    backgroundColor: 'white',
   },
   headerTitle: {
     color: 'white',
     fontWeight: 'bold',
-    marginBottom: 4,
   },
   headerSubtitle: {
     color: 'rgba(255,255,255,0.9)',

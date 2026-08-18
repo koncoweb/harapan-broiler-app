@@ -8,6 +8,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, UserData } from '../types';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
+import { validateEmail, validatePassword, validateRequired } from '../utils/validation';
+import { getErrorMessage } from '../utils/firebaseErrors';
 
 type RegisterScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Register'>;
@@ -21,24 +23,41 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleRegister = async () => {
-    if (!email || !password || !displayName) {
-      Alert.alert('Peringatan', 'Mohon isi semua field');
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+    const trimmedDisplayName = displayName.trim();
+
+    const displayNameValidation = validateRequired(trimmedDisplayName, 'Nama lengkap');
+    if (!displayNameValidation.valid) {
+      Alert.alert('Peringatan', displayNameValidation.error);
+      return;
+    }
+
+    const emailValidation = validateEmail(trimmedEmail);
+    if (!emailValidation.valid) {
+      Alert.alert('Peringatan', emailValidation.error);
+      return;
+    }
+
+    const passwordValidation = validatePassword(trimmedPassword);
+    if (!passwordValidation.valid) {
+      Alert.alert('Peringatan', passwordValidation.error);
       return;
     }
 
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
       const user = userCredential.user;
 
       // Update Auth Profile
-      await updateProfile(user, { displayName });
+      await updateProfile(user, { displayName: trimmedDisplayName });
 
       // Create User Document in Firestore
       const userData: UserData = {
         uid: user.uid,
         email: user.email || '',
-        displayName: displayName,
+        displayName: trimmedDisplayName,
         role: 'user' // Default role
       };
 
@@ -48,7 +67,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
         { text: 'OK', onPress: () => navigation.replace('Home') }
       ]);
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -102,6 +121,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
               mode="outlined"
               style={styles.input}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               left={<TextInput.Icon icon="email-outline" color="#666" />}
               theme={{ colors: { primary: '#2E7D32', background: 'white' } }}

@@ -1,15 +1,19 @@
 import React, { useState, useEffect, createElement } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Platform, Image } from 'react-native';
 import { Appbar, TextInput, Button, Text, Card, DataTable, Divider } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
-import { RootStackParamList, WeighingItem, WeighingSession, FarmSettings } from '../types';
+import { RootStackParamList, WeighingItem, WeighingSession } from '../types';
 import { db, auth } from '../config/firebaseConfig';
-import { collection, addDoc, setDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, setDoc, doc } from 'firebase/firestore';
 import { printReceiptAuto } from '../services/printerService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import NetInfo from '@react-native-community/netinfo';
-import { OfflineStorageService } from '../services/offlineStorage';
+import { OfflineStorageService, OfflineSession } from '../services/offlineStorage';
+import { useFarmSettings } from '../hooks/useFarmSettings';
+import { parseIndonesianNumber, formatNumber, formatWeightForDisplay, timeToDate } from '../utils/format';
+import { validateWeighingForm } from '../utils/validation';
+import { getErrorMessage } from '../utils/firebaseErrors';
 
 type CreateNotaScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateNota'>;
@@ -33,23 +37,10 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
   const [buyer, setBuyer] = useState('');
   const [driver, setDriver] = useState('');
-  const [settings, setSettings] = useState<FarmSettings | null>(null);
+  const { settings } = useFarmSettings();
 
-  // Fetch Settings & Populate Data if Editing
+  // Populate Data if Editing
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const settingsDoc = await getDoc(doc(db, 'settings', 'general'));
-        if (settingsDoc.exists()) {
-          setSettings(settingsDoc.data() as FarmSettings);
-        }
-      } catch (error) {
-        console.error("Error fetching settings:", error);
-      }
-    };
-    fetchSettings();
-
-    // Populate Data if Editing
     if (editingSession) {
       setDate(editingSession.date);
       setTime(editingSession.time || defaultTime);
@@ -72,14 +63,18 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
   const [paymentStatus, setPaymentStatus] = useState<'Lunas' | 'Belum Lunas' | 'Sebagian'>('Belum Lunas');
 
 
-  // Helper functions for Indonesian number format
-  const parseIndonesianNumber = (value: string) => {
-    return parseFloat(value.replace(',', '.')) || 0;
-  };
-
   const formatIndonesianNumber = (value: number) => {
     if (value === 0) return '';
     return value.toString().replace('.', ',');
+  };
+
+  const cleanLeadingZeros = (value: string) => {
+    if (!value) return '';
+    let cleaned = value;
+    cleaned = cleaned.replace(/^0+([1-9])/, '$1');
+    cleaned = cleaned.replace(/^0+$/, '0');
+    cleaned = cleaned.replace(/^0+(0[,.])/, '$1');
+    return cleaned;
   };
 
   // C. Tabel Penimbangan
@@ -126,14 +121,15 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
   // Helper untuk update item dengan dukungan input text sementara
   const updateItem = (id: string, field: 'grossWeight', value: string) => {
+    const cleanedValue = cleanLeadingZeros(value);
     // Simpan input text sementara untuk display
     setInputValues(prev => ({
       ...prev,
-      [id]: value
+      [id]: cleanedValue
     }));
 
     // Convert Indonesian comma format to dot format for storage
-    const normalizedValue = value.replace(',', '.');
+    const normalizedValue = cleanedValue.replace(',', '.');
     const numericValue = parseFloat(normalizedValue) || 0;
     
     const newItems = items.map(item => {
@@ -168,12 +164,6 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
   const addNewRow = () => {
     const newId = (items.length + 1).toString();
     setItems([...items, { id: newId, index: items.length + 1, grossWeight: 0 }]);
-  };
-
-  // Helper to format number for display (with Indonesian comma, no trailing zeros)
-  const formatWeightForDisplay = (weight: number) => {
-    if (!weight && weight !== 0) return '';
-    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(weight);
   };
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
@@ -244,19 +234,14 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
     );
   };
 
-  // Format weight without trailing zeros
-  const formatWeight = (weight: number) => {
-    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(weight);
-  };
-
   // Kalkulasi Total
   const totalNetWeight = items.reduce((acc, curr) => acc + curr.grossWeight, 0);
   
   const totalAmount = finalPrice * totalNetWeight;
 
   const handleSaveAndPrint = async () => {
-    if (!buyer || !basePrice) {
-      Alert.alert('Error', 'Mohon lengkapi data pembeli dan harga');
+    if (!auth.currentUser) {
+      Alert.alert('Error', 'Sesi login berakhir');
       return;
     }
 
@@ -265,8 +250,16 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
       return;
     }
 
-    if (!auth.currentUser) {
-      Alert.alert('Error', 'Sesi login berakhir');
+    const formValidation = validateWeighingForm({
+      buyer,
+      basePrice: parseIndonesianNumber(basePrice),
+      cnAmount: parseIndonesianNumber(cnAmount),
+      items,
+      date,
+    });
+
+    if (!formValidation.valid) {
+      Alert.alert('Peringatan', formValidation.error);
       return;
     }
 
@@ -300,15 +293,23 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
       if (isOffline) {
         // OFFLINE MODE
+        let offlineId: string;
         if (isEditing && editingSession) {
-          savedSession = { id: editingSession.id, ...sessionData };
+          offlineId = editingSession.id;
         } else {
           // Generate temporary offline ID
-          const offlineId = `offline_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-          savedSession = { id: offlineId, ...sessionData };
+          offlineId = `offline_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         }
 
-        await OfflineStorageService.saveSession(savedSession);
+        const offlineSession: OfflineSession = {
+          id: offlineId,
+          ...sessionData,
+          syncStatus: 'pending',
+          syncAttempts: 0,
+        };
+
+        await OfflineStorageService.saveSession(offlineSession);
+        savedSession = offlineSession;
         
         // Print Struk (Bluetooth works offline)
         await printReceiptAuto(savedSession, settings || undefined);
@@ -337,7 +338,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
       }
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', `Gagal ${isEditing ? 'memperbarui' : 'menyimpan'} nota`);
+      Alert.alert('Error', getErrorMessage(error) || `Gagal ${isEditing ? 'memperbarui' : 'menyimpan'} nota`);
     } finally {
       setLoading(false);
     }
@@ -345,10 +346,18 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
   return (
     <View style={styles.container}>
-      <Appbar.Header style={styles.header}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-        <Appbar.Content title={isEditing ? "EDIT NOTA" : "FORM NOTA BARU"} titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={{ width: '100%', overflow: 'hidden', backgroundColor: '#1B5E20' }}>
+        <Image 
+          source={require('../../assets/header.png')} 
+          style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', opacity: 0.25 }]}
+          resizeMode="cover"
+          blurRadius={Platform.OS === 'ios' ? 5 : 2}
+        />
+        <Appbar.Header style={[styles.header, { backgroundColor: 'transparent', elevation: 0 }]}>
+          <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
+          <Appbar.Content title={isEditing ? "EDIT NOTA" : "FORM NOTA BARU"} titleStyle={styles.headerTitle} />
+        </Appbar.Header>
+      </View>
 
       <ScrollView style={styles.content}>
         {/* A. DATA UMUM - Compact */}
@@ -439,7 +448,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
                 <TextInput
                   label="Harga Dasar"
                   value={basePrice}
-                  onChangeText={setBasePrice}
+                  onChangeText={(val) => setBasePrice(cleanLeadingZeros(val))}
                   keyboardType="numeric"
                   mode="outlined"
                   dense
@@ -453,7 +462,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
                 <TextInput
                   label="Potongan CN"
                   value={cnAmount}
-                  onChangeText={setCnAmount}
+                  onChangeText={(val) => setCnAmount(cleanLeadingZeros(val))}
                   keyboardType="numeric"
                   mode="outlined"
                   dense
@@ -468,7 +477,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
             <View style={styles.finalPriceBoxCompact}>
               <Text style={styles.finalPriceLabel}>HARGA BERSIH</Text>
               <Text style={styles.finalPriceValue}>
-                Rp {new Intl.NumberFormat('id-ID').format(finalPrice)}
+                Rp {formatNumber(finalPrice)}
               </Text>
             </View>
           </Card.Content>
@@ -508,13 +517,13 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
             <View style={styles.summaryRow}>
               <View>
                 <Text style={styles.summaryLabel}>TOTAL BERAT</Text>
-                <Text style={styles.summaryValueBig}>{formatWeight(totalNetWeight)} Kg</Text>
+                <Text style={styles.summaryValueBig}>{formatWeightForDisplay(totalNetWeight)} Kg</Text>
                 <Text style={styles.summarySub}>{items.filter(i => i.grossWeight > 0).length} Timbangan</Text>
               </View>
               <View style={{alignItems: 'flex-end'}}>
                 <Text style={styles.summaryLabel}>TOTAL BAYAR</Text>
                 <Text style={styles.summaryValueGreen}>
-                  Rp {new Intl.NumberFormat('id-ID').format(totalAmount)}
+                  Rp {formatNumber(totalAmount)}
                 </Text>
               </View>
             </View>
@@ -527,7 +536,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
                   <TextInput
                     label="Jumlah Bayar (Rp)"
                     value={amountPaid}
-                    onChangeText={setAmountPaid}
+                    onChangeText={(val) => setAmountPaid(cleanLeadingZeros(val))}
                     keyboardType="numeric"
                     mode="outlined"
                     dense
@@ -568,7 +577,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
                 )}
                 {paymentStatus === 'Lunas' && parseIndonesianNumber(amountPaid) > totalAmount && (
                   <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                    Kembali: {new Intl.NumberFormat('id-ID').format(parseIndonesianNumber(amountPaid) - totalAmount)}
+                    Kembali: {formatNumber(parseIndonesianNumber(amountPaid) - totalAmount)}
                   </Text>
                 )}
               </View>
@@ -582,7 +591,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
               style={styles.saveButton}
               labelStyle={{ fontSize: 16, fontWeight: 'bold' }}
             >
-              {isEditing ? 'UPDATE & CETAK' : 'SIMPAN'}
+              {isEditing ? 'UPDATE & CETAK' : 'SIMPAN & CETAK'}
             </Button>
           </Card.Content>
         </Card>
