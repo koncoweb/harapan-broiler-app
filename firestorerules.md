@@ -24,9 +24,9 @@ service cloud.firestore {
       // Batasi akses baca hanya untuk pemilik akun atau admin (Privacy)
       allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
 
-      // Saat daftar (create), paksa role menjadi 'user'
+      // Saat daftar (create), izinkan role 'user' atau 'admin'
       allow create: if isSignedIn() && isOwner(userId) &&
-        request.resource.data.role == 'user';
+        request.resource.data.role in ['user', 'admin'];
 
       // Saat update, user tidak boleh mengubah role-nya sendiri kecuali dia sudah admin
       allow update: if isSignedIn() && (

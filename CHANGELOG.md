@@ -8,6 +8,7 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
 
 ### Security
 - Menambahkan `.env.example` sebagai template konfigurasi Firebase tanpa nilai sensitif.
+- Memperbarui Firestore Rules untuk mengizinkan pembuatan akun dengan role `admin` dan `user`.
 
 ### Deployed
 - Deploy web ke EAS Hosting project lama: https://harapan-broiler--9xon8vavio.expo.app
