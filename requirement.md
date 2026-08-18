@@ -37,5 +37,5 @@ Aplikasi manajemen penimbangan ayam broiler berbasis mobile (Android/iOS) menggu
 - **Persistensi Auth**: Inisialisasi Firebase Auth harus menggunakan adapter AsyncStorage (`getReactNativePersistence`) agar sesi login tersimpan dengan aman saat aplikasi ditutup.
 - **Input Sanitasi**: Input email dan password harus selalu di-`.trim()` sebelum autentikasi guna mencegah kegagalan login karena spasi kosong tidak disengaja.
 - **EAS Build Env**: Environment variables Firebase harus disertakan di `eas.json` untuk semua profil build agar kompatibel dengan EAS build jarak jauh.
-- **Konfigurasi Project Firebase**: Saat ini aplikasi menggunakan project Firebase `quizzizclone`. Konfigurasi ini tercantum di `.env` untuk development lokal dan di `eas.json` untuk build EAS.
+- **Konfigurasi Project Firebase**: Pada branch `master` aplikasi menggunakan project Firebase `quizzizclone`. Pada branch `asyaberkah` aplikasi menggunakan project Firebase `crmappbuilder`. Konfigurasi ini tercantum di `.env` untuk development lokal dan di `eas.json` untuk build EAS.
 - **Template Environment**: Gunakan `.env.example` sebagai template untuk membuat file `.env` lokal. File `.env` asli tidak masuk ke version control.

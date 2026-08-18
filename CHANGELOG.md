@@ -14,6 +14,7 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
 - Build APK preview: https://expo.dev/artifacts/eas/AC3JLSfzzqvC4vLJSlEBeV0cegpQ_4dABOb78huLmdY.apk
 
 ### Changed
+- Branch `asyaberkah`: Mengganti konfigurasi Firebase dari project `quizzizclone` ke project `crmappbuilder` di `.env` dan `eas.json`.
 - Memperbarui `requirement.md` agar mencakup fitur terbaru: edit data, status pembayaran, pencarian canggih, batch delete, dan export Excel.
 - Refactor Fase 2: State Management & Eliminasi Duplikasi Kode
   - Menambahkan `src/utils/format.ts` untuk fungsi format angka, berat, mata uang, dan tanggal.
