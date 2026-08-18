@@ -66,7 +66,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 style={styles.logoIcon}
                 resizeMode="contain"
               />
-              <Text variant="headlineMedium" style={styles.headerTitle}>Harapan Broiler</Text>
+              <Text variant="headlineMedium" style={styles.headerTitle}>Asya Berkah</Text>
             </View>
             <Text variant="bodyLarge" style={styles.headerSubtitle}>Sistem Manajemen Digital</Text>
           </View>

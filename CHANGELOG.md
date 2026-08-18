@@ -1,4 +1,4 @@
-# Changelog - Harapan Broiler App
+# Changelog - Asya Berkah App
 
 Semua perubahan penting pada proyek ini akan dicatat di file ini.
 

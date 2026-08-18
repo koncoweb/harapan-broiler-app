@@ -42,7 +42,7 @@ eas build --profile development --platform android
 - PIN: `0000` atau `1234`
 
 ### 4. Test Print
-- Buka app Harapan Broiler
+- Buka app Asya Berkah
 - Login dengan akun Anda
 - Navigasi ke CreateNota
 - Isi form penimbangan:
@@ -75,7 +75,7 @@ eas build:configure
 ```
 
 ### Print Error: "Bluetooth permission denied"
-- Settings → Apps → Harapan Broiler → Permissions
+- Settings → Apps → Asya Berkah → Permissions
 - Enable: Bluetooth, Location, Nearby Devices
 
 ### Print Error: "Unable to connect to printer"

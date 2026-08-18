@@ -1,4 +1,4 @@
-# Requirement Document - Harapan Broiler App
+# Requirement Document - Asya Berkah App
 
 ## 1. Overview
 Aplikasi manajemen penimbangan ayam broiler berbasis mobile (Android/iOS) menggunakan Expo dan Firebase.

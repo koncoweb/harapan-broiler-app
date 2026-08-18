@@ -104,7 +104,7 @@ npm run android
    - Masukkan PIN (default: 0000 atau 1234)
 
 2. **Test connection** via app:
-   - Buka app Harapan Broiler
+   - Buka app Asya Berkah
    - Login
    - Buat nota penimbangan test
    - Klik "SIMPAN & CETAK"
@@ -136,7 +136,7 @@ npm install --legacy-peer-deps
 ### Error: "Bluetooth permission denied"
 
 **Solusi:**
-- Buka Settings → Apps → Harapan Broiler → Permissions
+- Buka Settings → Apps → Asya Berkah → Permissions
 - Enable Bluetooth, Location, Nearby Devices
 
 ### Error: "Unable to connect to printer"

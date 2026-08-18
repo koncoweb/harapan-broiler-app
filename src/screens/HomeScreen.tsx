@@ -238,7 +238,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           blurRadius={Platform.OS === 'ios' ? 5 : 2}
         />
         <Appbar.Header style={[styles.header, { backgroundColor: 'transparent', elevation: 0 }]}>
-          <Appbar.Content title={settings?.farmName || "Harapan Broiler"} titleStyle={{color: 'white', fontWeight: 'bold'}} />
+          <Appbar.Content title={settings?.farmName || "Asya Berkah"} titleStyle={{color: 'white', fontWeight: 'bold'}} />
           <Appbar.Action icon="bluetooth" color="white" onPress={() => navigation.navigate('BluetoothSettings')} />
           {userRole === 'admin' && (
             <Appbar.Action icon="shield-account" color="white" onPress={() => navigation.navigate('Admin')} />
@@ -368,7 +368,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           </>
         )}
         
-        <Text style={styles.versionText}>Harapan Broiler v1.0.2 • Juni 2026</Text>
+        <Text style={styles.versionText}>Asya Berkah v1.0.3 • Agustus 2026</Text>
         <View style={{height: 100}} /> 
       </ScrollView>
     </View>
