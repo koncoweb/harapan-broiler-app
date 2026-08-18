@@ -10,7 +10,7 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
 - Menambahkan `.env.example` sebagai template konfigurasi Firebase tanpa nilai sensitif.
 
 ### Deployed
-- Deploy web ke EAS Hosting: https://harapan-broiler--9xon8vavio.expo.app
+- Deploy web ke EAS Hosting: https://harapan-broiler--6zve7gm3b4.expo.app
 - Build APK preview: https://expo.dev/artifacts/eas/AC3JLSfzzqvC4vLJSlEBeV0cegpQ_4dABOb78huLmdY.apk
 
 ### Changed
