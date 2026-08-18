@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Asya Berkah",
-    "slug": "harapan-broiler",
+    "slug": "asyaberkah",
     "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -50,17 +50,14 @@
       "bundler": "metro",
       "output": "single"
     },
-    "extra": {
-      "eas": {
-        "projectId": "4f617799-aff8-40ef-9b29-da44d93ccbc7"
-      }
-    },
     "owner": "koncoweb",
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "updates": {
-      "url": "https://u.expo.dev/4f617799-aff8-40ef-9b29-da44d93ccbc7"
+    "extra": {
+      "eas": {
+        "projectId": "e7015cb0-d232-49bb-a4a1-6d82ad00486d"
+      }
     }
   }
 }
