@@ -11,7 +11,8 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
 
 ### Deployed
 - Deploy web ke EAS Hosting project lama: https://harapan-broiler--9xon8vavio.expo.app
-- Deploy web ke EAS Hosting project Asyaberkah: https://asyaberkah--f48jyras5d.expo.app
+- Deploy web ke EAS Hosting project Asyaberkah (preview): https://asyaberkah--f48jyras5d.expo.app
+- Deploy web ke EAS Hosting project Asyaberkah (production): https://asyaberkah.expo.app
 - Build APK preview: https://expo.dev/artifacts/eas/AC3JLSfzzqvC4vLJSlEBeV0cegpQ_4dABOb78huLmdY.apk
 
 ### Changed
