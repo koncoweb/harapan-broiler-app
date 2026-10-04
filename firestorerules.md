@@ -1,3 +1,9 @@
+// ============================================================================
+// DEPRECATED (Oktober 2026): Aplikasi sudah bermigrasi dari Firebase/Firestore
+// ke Turso (libSQL). Aturan akses kini ditegakkan di level aplikasi (role
+// admin/user), bukan lewat Firestore Security Rules. File ini hanya arsip
+// historis dan TIDAK dipakai lagi.
+// ============================================================================
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {

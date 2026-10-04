@@ -3,9 +3,12 @@ import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Platform, Image 
 import { Appbar, TextInput, Button, Text, Card, DataTable, Divider } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { RootStackParamList, WeighingItem, WeighingSession } from '../types';
-import { db, auth } from '../config/firebaseConfig';
-import { collection, addDoc, setDoc, doc } from 'firebase/firestore';
+import { createSession, updateSession } from '../services/weighingService';
+import { getCurrentUser } from '../services/authService';
 import { printReceiptAuto } from '../services/printerService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import NetInfo from '@react-native-community/netinfo';
@@ -13,7 +16,8 @@ import { OfflineStorageService, OfflineSession } from '../services/offlineStorag
 import { useFarmSettings } from '../hooks/useFarmSettings';
 import { parseIndonesianNumber, formatNumber, formatWeightForDisplay, timeToDate } from '../utils/format';
 import { validateWeighingForm } from '../utils/validation';
-import { getErrorMessage } from '../utils/firebaseErrors';
+import { colors, palette, radius, spacing, shadows, tabularNums, type, weights, sizes } from '../theme';
+import { haptic } from '../theme/haptics';
 
 type CreateNotaScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateNota'>;
@@ -24,6 +28,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
   // Check if editing
   const editingSession = route.params?.session;
   const isEditing = !!editingSession;
+  const insets = useSafeAreaInsets();
 
   // A. Data Umum
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -188,7 +193,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
     
     return (
       <View style={styles.webDateContainer}>
-        <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tanggal Timbang</Text>
+        <Text style={{ ...type.label, color: '#666', marginBottom: 4 }}>Tanggal Timbang</Text>
         {createElement('input', {
           type: 'date',
           value: date,
@@ -214,7 +219,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
     return (
       <View style={styles.webDateContainer}>
-        <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Jam</Text>
+        <Text style={{ ...type.label, color: '#666', marginBottom: 4 }}>Jam</Text>
         {createElement('input', {
           type: 'time',
           value: time,
@@ -240,8 +245,10 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
   const totalAmount = finalPrice * totalNetWeight;
 
   const handleSaveAndPrint = async () => {
-    if (!auth.currentUser) {
+    const user = await getCurrentUser();
+    if (!user) {
       Alert.alert('Error', 'Sesi login berakhir');
+      navigation.replace('Login');
       return;
     }
 
@@ -282,7 +289,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
         amountPaid: parseIndonesianNumber(amountPaid),
         paymentStatus,
         notes: "",
-        createdBy: isEditing ? (editingSession?.createdBy || auth.currentUser.email || auth.currentUser.uid) : (auth.currentUser.email || auth.currentUser.uid),
+        createdBy: isEditing ? (editingSession?.createdBy || user.email || user.uid) : (user.email || user.uid),
         createdAt: isEditing ? (editingSession?.createdAt || Date.now()) : Date.now()
       };
 
@@ -291,26 +298,25 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
       const netState = await NetInfo.fetch();
       const isOffline = !netState.isConnected;
 
-      if (isOffline) {
-        // OFFLINE MODE
-        let offlineId: string;
-        if (isEditing && editingSession) {
-          offlineId = editingSession.id;
-        } else {
-          // Generate temporary offline ID
-          offlineId = `offline_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-        }
-
+      // Persist to the on-device queue (new = temp id, edit = keep real id).
+      const queueForSync = async (editTarget?: WeighingSession): Promise<OfflineSession> => {
+        const offlineId = editTarget
+          ? editTarget.id
+          : `offline_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         const offlineSession: OfflineSession = {
           id: offlineId,
           ...sessionData,
           syncStatus: 'pending',
           syncAttempts: 0,
         };
-
         await OfflineStorageService.saveSession(offlineSession);
-        savedSession = offlineSession;
-        
+        return offlineSession;
+      };
+
+      if (isOffline) {
+        // OFFLINE MODE — save locally, print via Bluetooth, sync later.
+        savedSession = await queueForSync(isEditing ? editingSession : undefined);
+
         // Print Struk (Bluetooth works offline)
         await printReceiptAuto(savedSession, settings || undefined);
 
@@ -318,27 +324,40 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
           { text: 'OK', onPress: () => navigation.goBack() }
         ]);
       } else {
-        // ONLINE MODE (Existing Logic)
-        if (isEditing && editingSession) {
-          // Update existing document
-          await setDoc(doc(db, 'weighing_sessions', editingSession.id), sessionData);
-          savedSession = { id: editingSession.id, ...sessionData };
-        } else {
-          // Create new document
-          const docRef = await addDoc(collection(db, 'weighing_sessions'), sessionData);
-          savedSession = { id: docRef.id, ...sessionData };
+        // ONLINE MODE — write straight to Turso.
+        try {
+          if (isEditing && editingSession) {
+            await updateSession(editingSession.id, sessionData);
+            savedSession = { id: editingSession.id, ...sessionData };
+          } else {
+            const id = await createSession(sessionData);
+            savedSession = { id, ...sessionData };
+          }
+
+          // Print Struk
+          await printReceiptAuto(savedSession, settings || undefined);
+
+          Alert.alert('Sukses', `Nota berhasil ${isEditing ? 'diperbarui' : 'disimpan'} dan dicetak`, [
+            { text: 'OK', onPress: () => navigation.goBack() }
+          ]);
+        } catch (writeError: any) {
+          // Connected but the server write failed (token/500/offline replica).
+          // Fall back to the queue so the operator's input is never lost.
+          console.warn('Online write failed, queueing offline:', writeError);
+          savedSession = await queueForSync(isEditing ? editingSession : undefined);
+
+          await printReceiptAuto(savedSession, settings || undefined);
+
+          Alert.alert(
+            'Ditahan Offline',
+            'Tidak dapat menyimpan ke server saat ini. Data disimpan di perangkat — silakan sinkronkan nantinya.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
         }
-
-        // Print Struk
-        await printReceiptAuto(savedSession, settings || undefined);
-
-        Alert.alert('Sukses', `Nota berhasil ${isEditing ? 'diperbarui' : 'disimpan'} dan dicetak`, [
-          { text: 'OK', onPress: () => navigation.goBack() }
-        ]);
       }
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', getErrorMessage(error) || `Gagal ${isEditing ? 'memperbarui' : 'menyimpan'} nota`);
+      Alert.alert('Error', `Gagal ${isEditing ? 'memperbarui' : 'menyimpan'} nota`);
     } finally {
       setLoading(false);
     }
@@ -346,21 +365,28 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 
   return (
     <View style={styles.container}>
-      <View style={{ width: '100%', overflow: 'hidden', backgroundColor: '#1B5E20' }}>
-        <Image 
-          source={require('../../assets/header.png')} 
-          style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', opacity: 0.25 }]}
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={[palette.green900, palette.green700, palette.green600]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerWrap}
+      >
+        <Image
+          source={require('../../assets/header.png')}
+          style={styles.headerTexture}
           resizeMode="cover"
           blurRadius={Platform.OS === 'ios' ? 5 : 2}
         />
-        <Appbar.Header style={[styles.header, { backgroundColor: 'transparent', elevation: 0 }]}>
-          <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-          <Appbar.Content title={isEditing ? "EDIT NOTA" : "FORM NOTA BARU"} titleStyle={styles.headerTitle} />
-        </Appbar.Header>
-      </View>
+        <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm }]}>
+          <TouchableOpacity onPress={() => { haptic.tap(); navigation.goBack(); }} style={styles.backTouch}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{isEditing ? 'EDIT NOTA' : 'FORM NOTA BARU'}</Text>
+        </View>
+      </LinearGradient>
 
-      <ScrollView style={styles.content}>
-        {/* A. DATA UMUM - Compact */}
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <Card style={styles.card}>
           <Card.Content style={styles.cardContentCompact}>
             <View style={styles.row}>
@@ -487,7 +513,7 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
         <Card style={styles.card}>
           <View style={styles.tableHeaderCompact}>
             <Text style={styles.tableTitle}>TIMBANGAN ({items.length})</Text>
-            <Button mode="text" compact onPress={addNewRow} labelStyle={{color: '#4CAF50'}}>+ Baris</Button>
+            <Button mode="text" compact onPress={addNewRow} labelStyle={{ color: palette.green700 }}>+ Baris</Button>
           </View>
           
           <View style={styles.gridContainer}>
@@ -549,34 +575,34 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
                     onPress={() => setAmountPaid(formatIndonesianNumber(totalAmount))}
                     style={{ 
                       marginLeft: 8, 
-                      backgroundColor: '#E8F5E9', 
+                      backgroundColor: palette.green100, 
                       padding: 10, 
-                      borderRadius: 4,
+                      borderRadius: radius.sm,
+                      borderCurve: 'continuous',
                       justifyContent: 'center',
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: '#4CAF50'
+                      borderColor: palette.green300
                     }}
                   >
-                    <Text style={{ color: '#2E7D32', fontWeight: 'bold', fontSize: 12 }}>LUNAS</Text>
+                    <Text style={{ ...type.label, color: palette.green700 }}>LUNAS</Text>
                   </TouchableOpacity>
                 </View>
               </View>
               <View style={[styles.col, { flex: 0.4, alignItems: 'flex-end' }]}>
                 <Text style={{
-                  fontWeight: 'bold', 
-                  fontSize: 14,
-                  color: paymentStatus === 'Lunas' ? '#4CAF50' : paymentStatus === 'Sebagian' ? '#FFC107' : '#F44336'
+                  ...type.numericSm,
+                  color: paymentStatus === 'Lunas' ? palette.green600 : paymentStatus === 'Sebagian' ? '#FFC107' : '#F44336'
                 }}>
                   {paymentStatus.toUpperCase()}
                 </Text>
                 {paymentStatus !== 'Lunas' && (
-                  <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                  <Text style={{ ...type.caption, color: '#666', marginTop: 2 }}>
                     Sisa: {new Intl.NumberFormat('id-ID').format(Math.max(0, totalAmount - parseIndonesianNumber(amountPaid)))}
                   </Text>
                 )}
                 {paymentStatus === 'Lunas' && parseIndonesianNumber(amountPaid) > totalAmount && (
-                  <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                  <Text style={{ ...type.caption, color: '#666', marginTop: 2 }}>
                     Kembali: {formatNumber(parseIndonesianNumber(amountPaid) - totalAmount)}
                   </Text>
                 )}
@@ -589,14 +615,14 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
               loading={loading}
               icon="printer"
               style={styles.saveButton}
-              labelStyle={{ fontSize: 16, fontWeight: 'bold' }}
+              labelStyle={type.buttonLabel}
             >
               {isEditing ? 'UPDATE & CETAK' : 'SIMPAN & CETAK'}
             </Button>
           </Card.Content>
         </Card>
 
-        <View style={{height: 50}} />
+        <View style={{height: 20}} />
       </ScrollView>
 
       {/* Native Date Picker */}
@@ -626,35 +652,67 @@ export default function CreateNotaScreen({ navigation, route }: CreateNotaScreen
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F0F2F5',
+    backgroundColor: colors.background,
   },
-  header: {
-    backgroundColor: '#2E7D32', // Dark Green
-    elevation: 4,
-    height: 50,
+  headerWrap: {
+    width: '100%',
+    overflow: 'hidden',
+    boxShadow: shadows.header,
+  },
+  headerTexture: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    opacity: 0.18,
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  backTouch: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  backIcon: {
+    color: '#fff',
+    fontSize: 26,
+    lineHeight: 28,
+    marginTop: -3,
   },
   headerTitle: {
-    fontWeight: 'bold',
+    ...type.screenTitle,
     color: 'white',
-    fontSize: 18,
+    flex: 1,
   },
   content: {
-    padding: 10, // Reduced padding
+    flex: 1,
+  },
+  contentContainer: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl + 24,
   },
   card: {
-    backgroundColor: 'white',
-    borderRadius: 8, // Slightly less rounded
-    marginBottom: 10, // Reduced margin
-    elevation: 2,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    marginBottom: spacing.md,
+    boxShadow: shadows.card,
   },
   cardContentCompact: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
   },
   input: {
     backgroundColor: 'white',
     fontSize: 14,
-    height: 40, // Compact height
+    height: 44,
   },
   webDateContainer: {
     height: 46, // Match input height roughly including label
@@ -664,13 +722,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   priceCard: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: palette.green50,
   },
   sectionTitle: {
-    fontWeight: 'bold',
-    color: '#2E7D32',
-    marginBottom: 8,
-    fontSize: 12,
+    ...type.label,
+    fontWeight: weights.extrabold,
+    color: palette.green700,
+    marginBottom: spacing.sm,
   },
   row: {
     flexDirection: 'row',
@@ -681,38 +739,39 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   finalPriceBoxCompact: {
-    backgroundColor: '#43A047',
-    borderRadius: 8,
-    padding: 10,
+    backgroundColor: palette.green700,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    padding: spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: spacing.md,
+    boxShadow: shadows.fab,
   },
   finalPriceLabel: {
     color: 'rgba(255,255,255,0.9)',
-    fontSize: 12,
-    fontWeight: 'bold',
+    ...type.label,
   },
   finalPriceValue: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...type.numericMd,
+    fontSize: sizes.xxxl,
   },
   tableHeaderCompact: {
-    backgroundColor: '#1B263B',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    backgroundColor: palette.ink900,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
+    borderTopLeftRadius: radius.md,
+    borderTopRightRadius: radius.md,
   },
   tableTitle: {
     color: 'white',
-    fontWeight: 'bold',
-    fontSize: 12,
+    ...type.label,
+    fontWeight: weights.extrabold,
   },
   tableContainer: {
     padding: 8,
@@ -743,14 +802,15 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   th: {
-    fontSize: 10,
-    fontWeight: 'bold',
+    ...type.micro,
+    fontWeight: weights.bold,
     color: '#555',
     textAlign: 'center',
   },
   td: {
-    fontSize: 12,
+    ...type.caption,
     color: '#333',
+    ...tabularNums,
   },
   inputTable: {
     backgroundColor: 'white',
@@ -760,36 +820,36 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   summaryCard: {
-    backgroundColor: '#fff',
-    borderColor: '#4CAF50',
-    borderWidth: 1,
+    backgroundColor: colors.surface,
+    boxShadow: shadows.card,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: spacing.md,
   },
   summaryLabel: {
-    fontSize: 10,
-    color: '#666',
-    fontWeight: 'bold',
+    ...type.label,
+    color: colors.textSecondary,
   },
   summaryValueBig: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    ...type.numericLg,
+    color: colors.text,
   },
   summaryValueGreen: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2E7D32',
+    ...type.numericLg,
+    color: palette.green700,
   },
   summarySub: {
-    fontSize: 12,
-    color: '#666',
+    ...type.caption,
+    color: colors.textSecondary,
   },
   saveButton: {
-    backgroundColor: '#2E7D32',
-    borderRadius: 8,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    marginTop: spacing.md,
+    boxShadow: shadows.fab,
   },
 });

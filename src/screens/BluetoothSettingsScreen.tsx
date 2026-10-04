@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { 
-  Appbar, 
-  Card, 
-  Text, 
-  Button, 
-  List, 
-  ActivityIndicator, 
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import {
+  Card,
+  Text,
+  Button,
+  List,
+  ActivityIndicator,
   Chip,
   Divider,
   IconButton
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { RootStackParamList } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -22,6 +24,8 @@ import {
   isBluetoothPrinterConnected,
   BluetoothDevice
 } from '../services/bluetoothPrinterService';
+import { colors, palette, radius, spacing, shadows, type, weights } from '../theme';
+import { haptic } from '../theme/haptics';
 
 type BluetoothSettingsScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'BluetoothSettings'>;
@@ -30,6 +34,7 @@ type BluetoothSettingsScreenProps = {
 const LAST_PRINTER_KEY = 'lastConnectedPrinter';
 
 export default function BluetoothSettingsScreen({ navigation }: BluetoothSettingsScreenProps) {
+  const insets = useSafeAreaInsets();
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [scanning, setScanning] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
@@ -144,49 +149,49 @@ export default function BluetoothSettingsScreen({ navigation }: BluetoothSetting
         title={device.name || 'Unknown Device'}
         description={device.address}
         left={(props) => (
-          <List.Icon 
-            {...props} 
-            icon={isConnected ? "printer-check" : "printer"} 
-            color={isConnected ? "#4CAF50" : "#666"}
+          <List.Icon
+            {...props}
+            icon={isConnected ? "printer-check" : "printer"}
+            color={isConnected ? palette.green500 : colors.textSecondary}
           />
         )}
         right={() => (
           <View style={styles.deviceActions}>
             {isConnected && (
-              <Chip 
-                mode="flat" 
-                textStyle={{ color: 'white', fontSize: 10 }}
-                style={{ backgroundColor: '#4CAF50', marginRight: 8 }}
+              <Chip
+                mode="flat"
+                textStyle={{ ...type.micro, color: 'white' }}
+                style={{ backgroundColor: palette.green500, marginRight: 8 }}
               >
                 Connected
               </Chip>
             )}
             {device.address === lastSavedPrinter?.address && !isConnected && (
-              <Chip 
-                mode="outlined" 
-                textStyle={{ fontSize: 10 }}
+              <Chip
+                mode="outlined"
+                textStyle={type.micro}
                 style={{ marginRight: 8 }}
               >
                 Last Used
               </Chip>
             )}
             {isConnecting ? (
-              <ActivityIndicator size="small" color="#2E7D32" />
+              <ActivityIndicator size="small" color={palette.green700} />
             ) : isConnected ? (
-              <Button 
-                mode="outlined" 
-                compact 
+              <Button
+                mode="outlined"
+                compact
                 onPress={handleDisconnect}
-                textColor="#f44336"
+                textColor={palette.danger}
               >
                 Disconnect
               </Button>
             ) : (
-              <Button 
-                mode="contained" 
-                compact 
+              <Button
+                mode="contained"
+                compact
                 onPress={() => handleConnectDevice(device)}
-                buttonColor="#2E7D32"
+                buttonColor={palette.green700}
               >
                 Connect
               </Button>
@@ -203,22 +208,32 @@ export default function BluetoothSettingsScreen({ navigation }: BluetoothSetting
 
   return (
     <View style={styles.container}>
-      <Appbar.Header style={styles.header}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-        <Appbar.Content title="Bluetooth Printer Settings" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={[palette.green900, palette.green700, palette.green600]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerWrap}
+      >
+        <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm }]}>
+          <TouchableOpacity onPress={() => { haptic.tap(); navigation.goBack(); }} style={styles.backTouch}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Bluetooth Printer</Text>
+        </View>
+      </LinearGradient>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {/* Bluetooth Status */}
         <Card style={styles.card}>
           <Card.Content>
             <View style={styles.statusRow}>
               <Text style={styles.statusLabel}>Bluetooth Status:</Text>
-              <Chip 
+              <Chip
                 mode="flat"
                 textStyle={{ color: 'white' }}
-                style={{ 
-                  backgroundColor: bluetoothEnabled ? '#4CAF50' : '#f44336' 
+                style={{
+                  backgroundColor: bluetoothEnabled ? palette.green500 : palette.danger
                 }}
               >
                 {bluetoothEnabled ? 'Enabled' : 'Disabled'}
@@ -246,7 +261,7 @@ export default function BluetoothSettingsScreen({ navigation }: BluetoothSetting
                 loading={scanning}
                 disabled={!bluetoothEnabled}
                 style={styles.actionButton}
-                buttonColor="#2E7D32"
+                buttonColor={palette.green700}
               >
                 {scanning ? 'Scanning...' : 'Scan Devices'}
               </Button>
@@ -326,69 +341,97 @@ export default function BluetoothSettingsScreen({ navigation }: BluetoothSetting
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: colors.background,
   },
-  header: {
-    backgroundColor: '#2E7D32',
+  headerWrap: {
+    width: '100%',
+    overflow: 'hidden',
+    boxShadow: shadows.header,
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  backTouch: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  backIcon: {
+    color: '#fff',
+    fontSize: 26,
+    lineHeight: 28,
+    marginTop: -3,
   },
   headerTitle: {
-    fontWeight: 'bold',
+    ...type.screenTitle,
     color: 'white',
-    fontSize: 18,
+    flex: 1,
   },
   content: {
     flex: 1,
-    padding: 16,
+  },
+  contentContainer: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl + 20,
   },
   card: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    marginBottom: 16,
-    elevation: 2,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    marginBottom: spacing.lg,
+    boxShadow: shadows.card,
   },
   statusRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   statusLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    ...type.body,
+    color: colors.textSecondary,
   },
   connectedPrinterName: {
-    fontSize: 14,
-    color: '#2E7D32',
-    fontWeight: 'bold',
+    ...type.bodyStrong,
+    fontWeight: weights.bold,
+    color: palette.green700,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
+    ...type.sectionTitle,
+    color: colors.text,
+    marginBottom: spacing.md,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   actionButtons: {
-    gap: 8,
+    gap: spacing.sm,
   },
   actionButton: {
-    marginBottom: 8,
+    marginBottom: spacing.sm,
+    borderRadius: radius.sm,
+    borderCurve: 'continuous',
   },
   deviceItem: {
-    backgroundColor: '#f8f9fa',
-    marginBottom: 8,
-    borderRadius: 8,
-    paddingVertical: 4,
+    backgroundColor: palette.cloud,
+    marginBottom: spacing.sm,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    paddingVertical: spacing.sm,
   },
   connectedDevice: {
-    backgroundColor: '#e8f5e9',
-    borderColor: '#4CAF50',
+    backgroundColor: palette.successBg,
+    borderColor: palette.green500,
     borderWidth: 1,
   },
   deviceActions: {
@@ -397,29 +440,30 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
-    padding: 20,
+    padding: spacing.xl,
   },
   emptyText: {
-    fontSize: 14,
-    color: '#666',
+    ...type.body,
+    color: colors.textSecondary,
     textAlign: 'center',
     fontStyle: 'italic',
   },
   helpSection: {
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   helpStep: {
-    fontSize: 13,
-    color: '#555',
-    marginBottom: 4,
-    paddingLeft: 8,
+    ...type.subtitle,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    paddingLeft: spacing.sm,
   },
   helpNote: {
-    fontSize: 12,
-    color: '#666',
+    ...type.caption,
+    color: colors.textSecondary,
     fontStyle: 'italic',
-    backgroundColor: '#f0f8ff',
-    padding: 8,
-    borderRadius: 4,
+    backgroundColor: palette.infoBg,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    borderCurve: 'continuous',
   },
 });

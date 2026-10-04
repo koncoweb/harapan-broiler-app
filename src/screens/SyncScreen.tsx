@@ -1,22 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Appbar, Button, Text, ActivityIndicator, Card, IconButton, Divider, Chip } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { Button, Text, ActivityIndicator, Card, IconButton, Divider, Chip } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { RootStackParamList } from '../types';
 import { OfflineStorageService, OfflineSession, SyncStatus } from '../services/offlineStorage';
-import { db } from '../config/firebaseConfig';
-import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+import { syncSingleSession, MAX_SYNC_ATTEMPTS } from '../services/syncService';
 import NetInfo from '@react-native-community/netinfo';
 import { formatCurrency, formatDateId } from '../utils/format';
-import { getErrorMessage } from '../utils/firebaseErrors';
+import { colors, palette, radius, spacing, shadows, type, sizes } from '../theme';
+import { haptic } from '../theme/haptics';
 
 type SyncScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Sync'>;
 };
 
-const MAX_SYNC_ATTEMPTS = 3;
-
 export default function SyncScreen({ navigation }: SyncScreenProps) {
+  const insets = useSafeAreaInsets();
   const [offlineSessions, setOfflineSessions] = useState<OfflineSession[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -45,26 +47,7 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
     setLoading(false);
   };
 
-  const syncSingleSession = async (session: OfflineSession): Promise<boolean> => {
-    try {
-      await OfflineStorageService.updateSessionSyncStatus(session.id, 'syncing');
-
-      const { id, syncStatus, syncAttempts, lastSyncError, ...sessionData } = session;
-
-      if (id.startsWith('offline_')) {
-        await addDoc(collection(db, 'weighing_sessions'), sessionData);
-      } else {
-        await setDoc(doc(db, 'weighing_sessions', id), sessionData);
-      }
-
-      await OfflineStorageService.removeSession(id);
-      return true;
-    } catch (error: any) {
-      console.error(`Failed to sync session ${session.id}:`, error);
-      await OfflineStorageService.updateSessionSyncStatus(session.id, 'failed', getErrorMessage(error));
-      return false;
-    }
-  };
+  const syncSingle = (session: OfflineSession) => syncSingleSession(session);
 
   const handleSync = async () => {
     if (!isConnected) {
@@ -87,7 +70,7 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
     let failCount = 0;
 
     for (const session of retryableSessions) {
-      const success = await syncSingleSession(session);
+      const success = await syncSingle(session);
       if (success) {
         successCount++;
       } else {
@@ -119,7 +102,7 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
     }
 
     setSyncing(true);
-    const success = await syncSingleSession(session);
+    const success = await syncSingle(session);
     setSyncing(false);
     await loadOfflineData();
 
@@ -155,21 +138,21 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
   const getStatusChip = (status?: SyncStatus, attempts?: number) => {
     switch (status) {
       case 'syncing':
-        return <Chip icon="sync" style={{ backgroundColor: '#E3F2FD' }} textStyle={{ color: '#1976D2' }}>Menyinkronkan</Chip>;
+        return <Chip icon="sync" style={{ backgroundColor: palette.infoBg }} textStyle={{ color: palette.info }}>Menyinkronkan</Chip>;
       case 'failed':
         const maxed = (attempts || 0) >= MAX_SYNC_ATTEMPTS;
         return (
           <Chip
             icon="alert-circle"
-            style={{ backgroundColor: maxed ? '#FFEBEE' : '#FFF3E0' }}
-            textStyle={{ color: maxed ? '#D32F2F' : '#E65100' }}
+            style={{ backgroundColor: maxed ? palette.dangerBg : palette.warningBg }}
+            textStyle={{ color: maxed ? palette.danger : palette.warning }}
           >
             {maxed ? 'Gagal Total' : `Gagal (${attempts || 0}/${MAX_SYNC_ATTEMPTS})`}
           </Chip>
         );
       case 'pending':
       default:
-        return <Chip icon="clock-outline" style={{ backgroundColor: '#E8F5E9' }} textStyle={{ color: '#2E7D32' }}>Menunggu</Chip>;
+        return <Chip icon="clock-outline" style={{ backgroundColor: palette.successBg }} textStyle={{ color: palette.success }}>Menunggu</Chip>;
     }
   };
 
@@ -182,18 +165,28 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header style={styles.header}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-        <Appbar.Content title="Sinkronisasi Data" titleStyle={{ color: 'white', fontWeight: 'bold' }} />
-      </Appbar.Header>
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={[palette.green900, palette.green700, palette.green600]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerWrap}
+      >
+        <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm }]}>
+          <TouchableOpacity onPress={() => { haptic.tap(); navigation.goBack(); }} style={styles.backTouch}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Sinkronisasi Data</Text>
+        </View>
+      </LinearGradient>
 
       <View style={styles.statusContainer}>
         <Text style={styles.statusText}>
-          Status Koneksi: {isConnected ? <Text style={{color: 'green', fontWeight: 'bold'}}>ONLINE</Text> : <Text style={{color: 'red', fontWeight: 'bold'}}>OFFLINE</Text>}
+          Status Koneksi: {isConnected ? <Text style={{ ...type.bodyStrong, color: palette.success }}>ONLINE</Text> : <Text style={{ ...type.bodyStrong, color: palette.danger }}>OFFLINE</Text>}
         </Text>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {loading ? (
           <ActivityIndicator style={{ marginTop: 20 }} size="large" />
         ) : (
@@ -228,19 +221,19 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
                   <Divider style={{ marginVertical: 8 }} />
                   <View style={styles.row}>
                     <Text>Tanggal:</Text>
-                    <Text style={{ fontWeight: 'bold' }}>{formatDateId(item.date)} {item.time}</Text>
+                    <Text style={styles.rowValue}>{formatDateId(item.date)} {item.time}</Text>
                   </View>
                   <View style={styles.row}>
                     <Text>Total Berat:</Text>
-                    <Text style={{ fontWeight: 'bold' }}>{item.totalNetWeight} Kg</Text>
+                    <Text style={styles.rowValue}>{item.totalNetWeight} Kg</Text>
                   </View>
                   <View style={styles.row}>
                     <Text>Total Bayar:</Text>
-                    <Text style={{ fontWeight: 'bold' }}>{formatCurrency(item.totalAmount)}</Text>
+                    <Text style={styles.rowValue}>{formatCurrency(item.totalAmount)}</Text>
                   </View>
                   <View style={styles.row}>
                     <Text>Tipe:</Text>
-                    <Text style={{ fontStyle: 'italic', color: item.id.startsWith('offline_') ? '#1976D2' : '#E64A19' }}>
+                    <Text style={{ fontStyle: 'italic', color: item.id.startsWith('offline_') ? palette.info : palette.warning }}>
                       {item.id.startsWith('offline_') ? 'Data Baru' : 'Edit Data'}
                     </Text>
                   </View>
@@ -255,7 +248,7 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
                     <IconButton
                       icon="pencil"
                       size={20}
-                      onPress={() => navigation.navigate('CreateNota', { session: item })}
+                      onPress={() => { haptic.tap(); navigation.navigate('CreateNota', { session: item }); }}
                     />
                     {item.syncStatus === 'failed' && (item.syncAttempts || 0) < MAX_SYNC_ATTEMPTS && (
                       <IconButton
@@ -269,7 +262,7 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
                       <IconButton
                         icon="delete"
                         size={20}
-                        iconColor="#D32F2F"
+                        iconColor={palette.danger}
                         onPress={() => handleDeleteFailed(item)}
                         disabled={syncing}
                       />
@@ -281,21 +274,22 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
 
             {offlineSessions.length === 0 && (
               <View style={styles.emptyState}>
-                <Text style={{ color: '#888', textAlign: 'center' }}>Tidak ada data yang perlu disinkronkan.</Text>
+                <Text style={{ color: colors.textMuted, textAlign: 'center' }}>Tidak ada data yang perlu disinkronkan.</Text>
               </View>
             )}
           </>
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Button
           mode="contained"
-          onPress={handleSync}
+          onPress={() => { haptic.medium(); handleSync(); }}
           loading={syncing}
           disabled={syncing || retryableCount === 0 || !isConnected}
           style={styles.syncButton}
-          contentStyle={{ height: 50 }}
+          contentStyle={{ height: 52 }}
+          labelStyle={type.buttonLabel}
         >
           {syncing ? 'Menyinkronkan...' : 'SINKRONISASI SEKARANG'}
         </Button>
@@ -307,53 +301,87 @@ export default function SyncScreen({ navigation }: SyncScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: colors.background,
   },
-  header: {
-    backgroundColor: '#2E7D32',
+  headerWrap: {
+    width: '100%',
+    overflow: 'hidden',
+    boxShadow: shadows.header,
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  backTouch: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  backIcon: {
+    color: '#fff',
+    fontSize: 26,
+    lineHeight: 28,
+    marginTop: -3,
+  },
+  headerTitle: {
+    color: 'white',
+    ...type.screenTitle,
+    flex: 1,
   },
   statusContainer: {
-    padding: 12,
-    backgroundColor: '#E8F5E9',
+    padding: spacing.md,
+    backgroundColor: palette.green50,
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#C8E6C9',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.green100,
   },
   statusText: {
-    fontSize: 14,
-    color: '#333',
+    ...type.body,
+    color: colors.text,
   },
   content: {
     flex: 1,
-    padding: 16,
+  },
+  contentContainer: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
   summaryContainer: {
-    marginBottom: 16,
+    marginBottom: spacing.lg,
     alignItems: 'center',
   },
   summaryText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    ...type.numericMd,
+    fontSize: sizes.xxxl,
+    color: colors.text,
   },
   summaryWarning: {
-    fontSize: 14,
-    color: '#D32F2F',
-    marginTop: 4,
+    ...type.body,
+    color: palette.danger,
+    marginTop: spacing.xs,
   },
   summarySubtext: {
-    fontSize: 12,
-    color: '#666',
+    ...type.caption,
+    color: colors.textSecondary,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   card: {
-    marginBottom: 12,
-    backgroundColor: 'white',
+    marginBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    boxShadow: shadows.card,
   },
   failedCard: {
     borderLeftWidth: 4,
-    borderLeftColor: '#D32F2F',
+    borderLeftColor: palette.danger,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -361,45 +389,51 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buyerName: {
-    fontWeight: 'bold',
-    fontSize: 16,
+    ...type.cardTitle,
     flex: 1,
-    marginRight: 8,
+    marginRight: spacing.sm,
+    color: colors.text,
   },
   date: {
-    fontSize: 12,
-    color: '#666',
+    ...type.caption,
+    color: colors.textSecondary,
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
+  },
+  rowValue: {
+    ...type.numericSm,
+    color: colors.text,
   },
   errorBox: {
-    backgroundColor: '#FFEBEE',
-    padding: 8,
-    borderRadius: 4,
-    marginTop: 8,
+    backgroundColor: palette.dangerBg,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    marginTop: spacing.sm,
   },
   errorText: {
-    color: '#D32F2F',
-    fontSize: 12,
+    color: palette.danger,
+    ...type.caption,
   },
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   emptyState: {
-    marginTop: 40,
+    marginTop: spacing.xxl,
     alignItems: 'center',
   },
   footer: {
-    padding: 16,
-    backgroundColor: 'white',
-    elevation: 4,
+    padding: spacing.lg,
+    paddingBottom: spacing.lg,
+    backgroundColor: colors.surface,
+    boxShadow: shadows.raised,
   },
   syncButton: {
-    backgroundColor: '#2E7D32',
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
   }
 });

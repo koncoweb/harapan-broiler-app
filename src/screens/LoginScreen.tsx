@@ -1,90 +1,132 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, Dimensions, TouchableOpacity, Image } from 'react-native';
-import { TextInput, Button, Text, useTheme, Surface } from 'react-native-paper';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../config/firebaseConfig';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types';
+import {
+  View,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+} from 'react-native';
+import { TextInput, Text, Portal, Modal, Icon } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { getErrorMessage } from '../utils/firebaseErrors';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { login, changePassword } from '../services/authService';
+import { RootStackParamList } from '../types';
+import { colors, palette, radius, spacing, shadows, type, weights, sizes } from '../theme';
+import { haptic } from '../theme/haptics';
+import GradientButton from '../components/GradientButton';
+import { getAuthErrorMessage } from '../utils/authErrors';
+import { validatePassword } from '../utils/validation';
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
 };
 
-const { width } = Dimensions.get('window');
-
 export default function LoginScreen({ navigation }: LoginScreenProps) {
-  const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Forced first-login password change (default password = <email-local>123).
+  const [changeVisible, setChangeVisible] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changing, setChanging] = useState(false);
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
 
     if (!trimmedEmail || !trimmedPassword) {
+      haptic.error();
       Alert.alert('Peringatan', 'Mohon isi email dan password anda');
       return;
     }
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-      navigation.replace('Home');
+      const { mustChangePassword } = await login(trimmedEmail, trimmedPassword);
+      haptic.success();
+      if (mustChangePassword) {
+        setChangeVisible(true);
+      } else {
+        navigation.replace('Home');
+      }
     } catch (error: any) {
-      Alert.alert('Login Gagal', getErrorMessage(error));
+      haptic.error();
+      Alert.alert('Login Gagal', getAuthErrorMessage(error));
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      
-      {/* Background Decor */}
-      <View style={styles.headerContainer}>
-        <LinearGradient
-          colors={['#1B5E20', '#4CAF50']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <Image 
-            source={require('../../assets/header.png')} 
-            style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', opacity: 0.18 }]}
-            resizeMode="cover"
-            blurRadius={Platform.OS === 'ios' ? 5 : 2}
-          />
-          <View style={styles.headerContent}>
-            <View style={styles.logoRow}>
-              <Image 
-                source={require('../../assets/icon.png')} 
-                style={styles.logoIcon}
-                resizeMode="contain"
-              />
-              <Text variant="headlineMedium" style={styles.headerTitle}>Harapan Broiler</Text>
-            </View>
-            <Text variant="bodyLarge" style={styles.headerSubtitle}>Sistem Manajemen Digital</Text>
-          </View>
-        </LinearGradient>
-      </View>
+  const handleChangePassword = async () => {
+    const v = validatePassword(newPassword);
+    if (!v.valid) {
+      Alert.alert('Peringatan', v.error);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Peringatan', 'Konfirmasi password tidak cocok');
+      return;
+    }
+    setChanging(true);
+    try {
+      await changePassword(password.trim(), newPassword);
+      setChangeVisible(false);
+      haptic.success();
+      Alert.alert('Sukses', 'Password berhasil diganti', [
+        { text: 'OK', onPress: () => navigation.replace('Home') },
+      ]);
+    } catch (error: any) {
+      haptic.error();
+      Alert.alert('Error', getAuthErrorMessage(error));
+    } finally {
+      setChanging(false);
+    }
+  };
 
-      {/* Main Content */}
-      <KeyboardAvoidingView 
+  return (
+    <LinearGradient
+      colors={[colors.gradientStart, colors.gradientEnd]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0.6, y: 1 }}
+      style={styles.screen}
+    >
+      <StatusBar style="light" />
+      <Image
+        source={require('../../assets/header.png')}
+        style={styles.watermark}
+        resizeMode="cover"
+        blurRadius={Platform.OS === 'ios' ? 6 : 3}
+      />
+
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardView}
+        style={styles.flex}
       >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xxl }]}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="automatic"
         >
-          <Surface style={styles.card} elevation={4}>
-            <Text variant="headlineSmall" style={styles.cardTitle}>Selamat Datang</Text>
-            <Text variant="bodyMedium" style={styles.cardSubtitle}>Silakan masuk ke akun anda</Text>
+          <View style={styles.brand}>
+            <View style={styles.logoWrap}>
+              <Image source={require('../../assets/icon.jpg')} style={styles.logo} />
+            </View>
+            <Text style={styles.appTitle}>Harapan Broiler</Text>
+            <Text style={styles.appSubtitle}>Sistem Manajemen Digital</Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Selamat Datang</Text>
+            <Text style={styles.cardSubtitle}>Masuk untuk melanjutkan</Text>
 
             <TextInput
               label="Email"
@@ -92,11 +134,11 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               onChangeText={setEmail}
               mode="outlined"
               style={styles.input}
+              contentStyle={styles.inputContent}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
-              left={<TextInput.Icon icon="email-outline" color="#666" />}
-              theme={{ colors: { primary: '#2E7D32', background: 'white' } }}
+              left={<TextInput.Icon icon="email-outline" color={palette.slate400} />}
             />
 
             <TextInput
@@ -106,151 +148,148 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               mode="outlined"
               secureTextEntry={!showPassword}
               style={styles.input}
-              left={<TextInput.Icon icon="lock-outline" color="#666" />}
+              contentStyle={styles.inputContent}
+              left={<TextInput.Icon icon="lock-outline" color={palette.slate400} />}
               right={
-                <TextInput.Icon 
-                  icon={showPassword ? "eye-off" : "eye"} 
-                  onPress={() => setShowPassword(!showPassword)}
+                <TextInput.Icon
+                  icon={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  color={palette.slate400}
+                  onPress={() => setShowPassword((v) => !v)}
                 />
               }
-              theme={{ colors: { primary: '#2E7D32', background: 'white' } }}
+              onSubmitEditing={handleLogin}
+              returnKeyType="go"
             />
 
-            <TouchableOpacity 
-              style={styles.forgotPassword}
+            <TouchableOpacity
+              style={styles.forgot}
               onPress={() => Alert.alert('Info', 'Silakan hubungi admin untuk reset password')}
             >
-              <Text style={{ color: '#2E7D32', fontWeight: '600' }}>Lupa Password?</Text>
+              <Text style={styles.forgotText}>Lupa Password?</Text>
             </TouchableOpacity>
 
-            <Button 
-              mode="contained" 
-              onPress={handleLogin} 
-              loading={loading}
-              contentStyle={styles.buttonContent}
-              style={styles.button}
-              labelStyle={styles.buttonLabel}
-            >
-              MASUK
-            </Button>
-          </Surface>
+            <GradientButton label="Masuk" onPress={handleLogin} loading={loading} disabled={loading} />
+          </View>
 
           <View style={styles.footer}>
-            <Text style={{ color: '#666' }}>Belum punya akun? </Text>
+            <Text style={styles.footerMuted}>Belum punya akun? </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={{ color: '#2E7D32', fontWeight: 'bold' }}>Daftar Sekarang</Text>
+              <Text style={styles.footerLink}>Daftar Sekarang</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.versionText}>Versi Juni 2026</Text>
+          <Text style={styles.version}>Versi v1.0.3 • Oktober 2026</Text>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+
+      <Portal>
+        <Modal
+          visible={changeVisible}
+          onDismiss={() => {}}
+          dismissable={false}
+          contentContainerStyle={styles.modal}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalBadge}>
+              <Icon source="key-outline" size={22} color={colors.primary} />
+            </View>
+            <Text style={styles.modalTitle}>Ganti Password Default</Text>
+            <Text style={styles.modalText}>
+              Ini login pertama Anda. Buat password baru (minimal 6 karakter).
+            </Text>
+            <TextInput
+              label="Password Baru"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              mode="outlined"
+              secureTextEntry
+              style={styles.input}
+              contentStyle={styles.inputContent}
+            />
+            <TextInput
+              label="Konfirmasi Password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              mode="outlined"
+              secureTextEntry
+              style={styles.input}
+              contentStyle={styles.inputContent}
+            />
+            <GradientButton
+              label="Simpan & Masuk"
+              onPress={handleChangePassword}
+              loading={changing}
+              disabled={changing}
+            />
+          </View>
+        </Modal>
+      </Portal>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  versionText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 11,
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F7FA',
-  },
-  headerContainer: {
-    height: 280,
-    width: '100%',
+  flex: { flex: 1 },
+  screen: { flex: 1 },
+  watermark: {
     position: 'absolute',
-    top: 0,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    overflow: 'hidden',
-    elevation: 4,
-  },
-  headerGradient: {
-    flex: 1,
     width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 40,
+    height: '100%',
+    opacity: 0.12,
   },
-  headerContent: {
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 20,
-  },
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  logoIcon: {
-    width: 44,
-    height: 44,
-    marginRight: 10,
-    borderRadius: 10,
-    backgroundColor: 'white',
-  },
-  headerTitle: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 16,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
+  scroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: 20,
-    paddingTop: 180, // Push down to overlap header
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xxl,
   },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    marginBottom: 24,
-  },
-  cardTitle: {
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  cardSubtitle: {
-    color: '#666',
-    marginBottom: 24,
-  },
-  input: {
-    marginBottom: 16,
-    backgroundColor: 'white',
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
-  },
-  button: {
-    backgroundColor: '#2E7D32',
-    borderRadius: 12,
-    elevation: 2,
-  },
-  buttonContent: {
-    height: 48,
-  },
-  buttonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  footer: {
-    flexDirection: 'row',
+  brand: { alignItems: 'center', marginBottom: spacing.xl },
+  logoWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: spacing.md,
+    boxShadow: shadows.raised,
   },
+  logo: { width: 60, height: 60, borderRadius: radius.md },
+  appTitle: { color: '#fff', ...type.screenTitle, fontSize: sizes.displayLg },
+  appSubtitle: { color: 'rgba(255,255,255,0.85)', ...type.body, marginTop: 2 },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderCurve: 'continuous',
+    padding: spacing.xl,
+    gap: spacing.xs,
+    boxShadow: shadows.raised,
+  },
+  cardTitle: { ...type.screenTitle, color: colors.text },
+  cardSubtitle: { ...type.body, color: colors.textSecondary, marginBottom: spacing.md },
+  input: { marginBottom: spacing.md, backgroundColor: colors.surface },
+  inputContent: { minHeight: 52 },
+  forgot: { alignSelf: 'flex-end', marginBottom: spacing.lg },
+  forgotText: { color: colors.primary, ...type.bodyStrong },
+  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.xl },
+  footerMuted: { color: 'rgba(255,255,255,0.85)' },
+  footerLink: { color: '#fff', fontWeight: weights.extrabold },
+  version: { ...type.micro, textAlign: 'center', color: 'rgba(255,255,255,0.7)', marginTop: spacing.md },
+  modal: { padding: spacing.xl, backgroundColor: 'transparent' },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderCurve: 'continuous',
+    padding: spacing.xl,
+  },
+  modalBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: palette.green100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: { ...type.sectionTitle, color: colors.text },
+  modalText: { ...type.body, color: colors.textSecondary, marginTop: 4, marginBottom: spacing.lg },
 });

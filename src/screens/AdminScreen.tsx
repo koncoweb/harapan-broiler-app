@@ -2,9 +2,12 @@ import React, { useEffect, useState, createElement } from 'react';
 import { View, StyleSheet, Alert, ScrollView, TouchableOpacity, Platform, LayoutAnimation, UIManager } from 'react-native';
 import { Appbar, Text, ActivityIndicator, TextInput, Button, IconButton, Card, Divider, useTheme, Portal, Modal, Chip } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { RootStackParamList, WeighingSession, FarmSettings } from '../types';
-import { auth, db } from '../config/firebaseConfig';
-import { doc, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { deleteSession, deleteMany } from '../services/weighingService';
+import { getCurrentUser } from '../services/authService';
 import { printReceipt, printReceiptAuto } from '../services/printerService';
 import { exportToExcel } from '../services/excelService';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -12,6 +15,8 @@ import { useUserRole } from '../hooks/useUserRole';
 import { useFarmSettings } from '../hooks/useFarmSettings';
 import { useWeighingSessions } from '../hooks/useWeighingSessions';
 import { formatCurrency, formatWeight } from '../utils/format';
+import { colors, palette, radius, spacing, shadows, tabularNums, paymentStatusColors, type, weights } from '../theme';
+import { haptic } from '../theme/haptics';
 
 if (Platform.OS === 'android') {
   if (UIManager.setLayoutAnimationEnabledExperimental) {
@@ -25,13 +30,15 @@ type AdminScreenProps = {
 
 export default function AdminScreen({ navigation }: AdminScreenProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [filteredSessions, setFilteredSessions] = useState<WeighingSession[]>([]);
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const { isAdmin, loading: roleLoading } = useUserRole();
-  const { settings, setSettings } = useFarmSettings();
-  const { sessions, loading: sessionsLoading } = useWeighingSessions();
+  const { settings, setSettings, save: saveSettings } = useFarmSettings();
+  // Rekap/Export/Delete operate over the full dataset, so load a large window.
+  const { sessions, loading: sessionsLoading, refresh } = useWeighingSessions({ pageSize: 10000 });
 
   // Settings Modal State
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
@@ -57,10 +64,9 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
   };
 
   useEffect(() => {
-    if (!auth.currentUser) {
-      navigation.replace('Login');
-      return;
-    }
+    getCurrentUser().then((user) => {
+      if (!user) navigation.replace('Login');
+    });
 
     if (!roleLoading && !isAdmin) {
       Alert.alert('Akses Ditolak', 'Anda bukan admin!');
@@ -145,8 +151,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
         farmAddress: editFarmAddress
       };
       
-      await setDoc(doc(db, 'settings', 'general'), newSettings);
-      setSettings(newSettings);
+      await saveSettings(newSettings);
       setSettingsModalVisible(false);
       Alert.alert('Sukses', 'Pengaturan berhasil disimpan');
     } catch (error) {
@@ -172,7 +177,8 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, 'weighing_sessions', session.id));
+              await deleteSession(session.id);
+              refresh();
             } catch (error) {
               console.error("Error deleting session:", error);
               Alert.alert('Error', 'Gagal menghapus data');
@@ -200,22 +206,8 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
           onPress: async () => {
             setDeleting(true);
             try {
-              // Batch delete (chunked for safety if > 500)
-              const batchSize = 500;
-              const chunks = [];
-              for (let i = 0; i < filteredSessions.length; i += batchSize) {
-                chunks.push(filteredSessions.slice(i, i + batchSize));
-              }
-
-              for (const chunk of chunks) {
-                const batch = writeBatch(db);
-                chunk.forEach(session => {
-                  const docRef = doc(db, 'weighing_sessions', session.id);
-                  batch.delete(docRef);
-                });
-                await batch.commit();
-              }
-              
+              await deleteMany(filteredSessions.map((s) => s.id));
+              refresh();
               Alert.alert('Sukses', `${filteredSessions.length} data berhasil dihapus`);
             } catch (error) {
               console.error("Error deleting sessions:", error);
@@ -288,11 +280,21 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header style={styles.header}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-        <Appbar.Content title="REKAP NOTA" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="cog" onPress={openSettingsModal} color="white" />
-      </Appbar.Header>
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={[palette.green900, palette.green700, palette.green600]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerWrap}
+      >
+        <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm }]}>
+          <TouchableOpacity onPress={() => { haptic.tap(); navigation.goBack(); }} style={styles.backTouch}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>REKAP NOTA</Text>
+          <IconButton icon="cog" size={22} iconColor="#fff" onPress={() => { haptic.tap(); openSettingsModal(); }} />
+        </View>
+      </LinearGradient>
 
       <View style={styles.filterContainer}>
         <Text style={styles.filterTitle}>Filter Data</Text>
@@ -342,7 +344,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
 
         {/* Payment Status Filter */}
         <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>Status Pembayaran:</Text>
+          <Text style={{ ...type.bodyStrong, color: '#666', marginBottom: 8 }}>Status Pembayaran:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             <Chip 
               selected={filterPaymentStatus === ''} 
@@ -355,7 +357,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
               selected={filterPaymentStatus === 'Lunas'} 
               onPress={() => setFilterPaymentStatus('Lunas')}
               showSelectedOverlay
-              textStyle={{ color: '#2E7D32' }}
+              textStyle={{ color: palette.green700 }}
             >
               Lunas
             </Chip>
@@ -406,7 +408,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
               loading={exporting}
               disabled={exporting || filteredSessions.length === 0}
               icon="file-excel"
-              buttonColor="#2E7D32"
+              buttonColor={palette.green700}
               compact
             >
               Ekspor Excel
@@ -429,22 +431,24 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
           const isLunas = status === 'Lunas';
           const isSebagian = status === 'Sebagian';
           
-          let statusColors = { bg: '#FFEBEE', text: '#C62828' }; // Default Belum Lunas (Red)
-          if (isLunas) statusColors = { bg: '#E8F5E9', text: '#2E7D32' }; // Green
-          if (isSebagian) statusColors = { bg: '#FFF3E0', text: '#EF6C00' }; // Orange
+          const statusColors: { bg: string; text: string } = isLunas
+            ? { bg: palette.successBg, text: palette.success }
+            : isSebagian
+            ? { bg: palette.warningBg, text: palette.warning }
+            : { bg: palette.dangerBg, text: palette.danger };
 
           return (
             <Card key={item.id} style={styles.card} onPress={() => toggleExpand(item.id)}>
               <View style={styles.cardRow}>
                 {/* Date & Time Column */}
                 <View style={[styles.cell, { flex: 0.8 }]}>
-                  <Text style={{ fontSize: 13, fontWeight: '500' }}>{item.date}</Text>
-                  <Text style={{ fontSize: 12, color: '#666' }}>{item.time || '-'}</Text>
+                  <Text style={{ ...type.subtitle, fontWeight: weights.medium, ...tabularNums }}>{item.date}</Text>
+                  <Text style={{ ...type.caption, color: '#666', ...tabularNums }}>{item.time || '-'}</Text>
                 </View>
 
                 {/* Buyer & Status Column */}
                 <View style={[styles.cell, { flex: 1.5 }]}>
-                  <Text style={{ fontWeight: 'bold', fontSize: 14, marginBottom: 4 }}>{item.buyer}</Text>
+                  <Text style={{ ...type.cardTitleSm, marginBottom: 4 }}>{item.buyer}</Text>
                   <View style={{ 
                     alignSelf: 'flex-start',
                     backgroundColor: statusColors.bg,
@@ -452,7 +456,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                     paddingVertical: 2,
                     borderRadius: 12,
                   }}>
-                    <Text style={{ color: statusColors.text, fontSize: 10, fontWeight: 'bold' }}>
+                    <Text style={{ ...type.micro, fontWeight: weights.bold, color: statusColors.text }}>
                       {status.toUpperCase()}
                     </Text>
                   </View>
@@ -462,9 +466,8 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                 <View style={[styles.cell, { flex: 1.5, alignItems: 'flex-end' }]}>
                   {/* Total Tagihan */}
                   <Text style={{ 
-                    fontWeight: 'bold', 
-                    fontSize: 14, 
-                    color: isLunas ? '#2E7D32' : '#333' 
+                    ...type.numericSm,
+                    color: isLunas ? palette.green700 : '#333' 
                   }}>
                     {formatCurrency(item.totalAmount || 0)}
                   </Text>
@@ -472,10 +475,10 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                   {/* Partial Payment Details */}
                   {isSebagian && (
                     <>
-                      <Text style={{ fontSize: 11, color: '#666', marginTop: 1 }}>
+                      <Text style={{ ...type.micro, color: '#666', marginTop: 1, ...tabularNums }}>
                         Bayar: {formatCurrency(item.amountPaid || 0)}
                       </Text>
-                      <Text style={{ fontSize: 13, color: '#D32F2F', fontWeight: 'bold', marginTop: 1 }}>
+                      <Text style={{ ...type.caption, fontWeight: weights.bold, color: '#D32F2F', marginTop: 1, ...tabularNums }}>
                         Sisa: {formatCurrency((item.totalAmount || 0) - (item.amountPaid || 0))}
                       </Text>
                     </>
@@ -483,7 +486,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                   
                   {/* Belum Lunas Info (Optional, just explicit red text) */}
                   {!isLunas && !isSebagian && (
-                     <Text style={{ fontSize: 11, color: '#D32F2F', marginTop: 1 }}>
+                     <Text style={{ ...type.micro, color: '#D32F2F', marginTop: 1 }}>
                        Belum Dibayar
                      </Text>
                   )}
@@ -525,7 +528,7 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
                     <Text style={styles.detailLabel}>Status:</Text>
                     <Text style={[styles.detailValue, { 
                       fontWeight: 'bold',
-                      color: (item.paymentStatus || 'Belum Lunas') === 'Lunas' ? '#4CAF50' : 
+                      color: (item.paymentStatus || 'Belum Lunas') === 'Lunas' ? palette.green600 : 
                              (item.paymentStatus === 'Sebagian' ? '#FFA000' : '#D32F2F')
                     }]}>
                       {(item.paymentStatus || 'Belum Lunas').toUpperCase()}
@@ -622,45 +625,67 @@ export default function AdminScreen({ navigation }: AdminScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
-    backgroundColor: '#C62828', // Darker Red
-    elevation: 4,
+  headerWrap: {
+    width: '100%',
+    overflow: 'hidden',
+    boxShadow: shadows.header,
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  backTouch: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  backIcon: {
+    color: '#fff',
+    fontSize: 26,
+    lineHeight: 28,
+    marginTop: -3,
   },
   headerTitle: {
     color: 'white',
-    fontWeight: 'bold',
-    fontSize: 20,
+    ...type.screenTitle,
+    flex: 1,
   },
   filterContainer: {
-    padding: 16,
-    backgroundColor: 'white',
-    elevation: 2,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    marginBottom: 8,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    marginBottom: spacing.md,
+    boxShadow: shadows.card,
   },
   filterTitle: {
-    fontWeight: '700',
-    marginBottom: 12,
-    fontSize: 16,
-    color: '#424242',
+    ...type.sectionTitle,
+    marginBottom: spacing.md,
+    color: colors.text,
   },
   row: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: spacing.md,
     alignItems: 'center',
+    gap: spacing.sm,
   },
   input: {
     backgroundColor: 'white',
     fontSize: 14,
-    height: 40,
+    height: 44,
   },
   webDateContainer: {
     flex: 1,
@@ -668,88 +693,86 @@ const styles = StyleSheet.create({
   },
   dateInput: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 10,
-    marginRight: 8,
-    backgroundColor: 'white',
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    padding: spacing.md,
+    backgroundColor: palette.green50,
+    marginRight: spacing.sm,
   },
   inputLabel: {
-    fontSize: 12,
-    color: '#757575',
+    ...type.label,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   dateValue: {
-    fontSize: 14,
-    color: '#212121',
-    fontWeight: '500',
+    ...type.bodyStrong,
+    color: colors.text,
   },
   tableHeader: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#EEEEEE',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E0E0E0',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: palette.green50,
   },
   headerCell: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#424242',
+    ...type.label,
+    fontWeight: weights.extrabold,
+    color: colors.textSecondary,
   },
   listContainer: {
-    padding: 8,
-    paddingBottom: 24,
+    padding: spacing.md,
+    paddingBottom: spacing.xxl + 20,
   },
   card: {
-    marginBottom: 8,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    elevation: 1,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    boxShadow: shadows.card,
   },
   cardRow: {
     flexDirection: 'row',
-    padding: 16,
+    padding: spacing.lg,
     alignItems: 'center',
   },
   cell: {
     // fontSize and color removed to fix ViewStyle type error
   },
   expandedContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    backgroundColor: '#FAFAFA',
-    borderBottomLeftRadius: 8,
-    borderBottomRightRadius: 8,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    backgroundColor: palette.green50,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
   },
   divider: {
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   detailLabel: {
-    fontSize: 14,
-    color: '#757575',
+    ...type.body,
+    color: colors.textSecondary,
   },
   detailValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#212121',
+    ...type.bodyStrong,
+    color: colors.text,
+    ...tabularNums,
   },
   printButton: {
-    marginTop: 12,
+    borderRadius: radius.sm,
+    borderCurve: 'continuous',
+    marginTop: spacing.md,
   },
   modalContent: {
-    padding: 20,
-    margin: 20,
+    padding: spacing.xl,
+    margin: spacing.xl,
   },
   modalInput: {
-    marginBottom: 12,
+    marginBottom: spacing.md,
     backgroundColor: 'white',
   }
 });

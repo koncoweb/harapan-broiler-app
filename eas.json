@@ -20,6 +20,8 @@
         "buildType": "apk"
       },
       "env": {
+        "EXPO_PUBLIC_TURSO_URL": "https://harapanbroiler-koncoweb.aws-ap-northeast-1.turso.io",
+        "EXPO_PUBLIC_TURSO_AUTH_TOKEN": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTA4MDA0OTcsImlkIjoiMDFhMGY0MDYtZGQwMS03ZGRmLTlkYTgtYzE4NmFmMzM4OTU2Iiwia2lkIjoiMW5menVoX01Pa1FGbVI2V1pCTXV6Q1dEWU9BaFBBanBJWmJ0eUZMR2RnVSIsInJpZCI6IjY2YzgyYmQ3LWFmMzktNGRhNS05NzRjLTIwNjI3ZGQ3NmQzMyJ9.fXFXTH0Ivkb4qsngdc1Wf3psS2_scUwiUehVME19pIjxbpMq4vZ9fVSe2k3CVDcUc_mJ3GwS0YmGF2dEPgf4Ag",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDo6u_dh_HgZmrL95mxdzg0Aphnqi3Wu3M",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "quizzizclone.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "quizzizclone",

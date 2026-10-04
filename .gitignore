@@ -37,6 +37,13 @@ yarn-error.*
 # agent / private notes
 .agents/
 akun*.md
+TURSO_ACCOUNTS.md
+
+# build logs & export artifacts
+eas-build.log
+eas-preview-build.log
+favicon_io.zip
+favicon_io/
 
 # typescript
 *.tsbuildinfo

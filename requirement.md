@@ -1,7 +1,7 @@
 # Requirement Document - Harapan Broiler App
 
 ## 1. Overview
-Aplikasi manajemen penimbangan ayam broiler berbasis mobile (Android/iOS) menggunakan Expo dan Firebase.
+Aplikasi manajemen penimbangan ayam broiler berbasis mobile (Android/iOS) menggunakan Expo dan Turso (libSQL).
 
 ## 2. Fitur Utama
 - **Autentikasi**: Login/Register (Email/Password).
@@ -10,10 +10,11 @@ Aplikasi manajemen penimbangan ayam broiler berbasis mobile (Android/iOS) menggu
 - **Edit Data**: Admin dapat mengedit sesi penimbangan yang sudah tersimpan.
 - **Status Pembayaran**: Sistem menghitung status pembayaran secara otomatis (Lunas, Sebagian, Belum Lunas) berdasarkan jumlah bayar.
 - **Pencarian Canggih**: Pencarian multi-kata dengan filter tanggal, nama bulan, operator jumlah (>/<), dan operator berat.
-- **Offline Mode**:
-  - Menyimpan data transaksi secara lokal ketika tidak ada koneksi internet.
-  - Sinkronisasi manual data offline ke Firebase saat koneksi kembali.
-  - Mendukung sinkronisasi data baru maupun perubahan data existing.
+- **Offline Mode** (strategi A > B > C agar data tidak hilang):
+  - (A) Cache baca terakhir + penggabungan antrean offline ke daftar; fallback ke cache saat server error.
+  - (B) Fallback tulis: kegagalan tulis ke Turso otomatis dimasukkan ke antrean offline.
+  - (C) Auto-sync saat koneksi kembali dan saat app kembali ke foreground; sinkronisasi manual juga tersedia.
+  - Mendukung sinkronisasi data baru (`offline_` → INSERT) maupun perubahan data existing (UPDATE).
 - **Bluetooth Printer**: Mencetak struk via printer thermal bluetooth.
 - **Bagikan Struk**: Export struk ke PDF dan bagikan melalui aplikasi lain.
 - **Admin Panel**:
@@ -24,18 +25,20 @@ Aplikasi manajemen penimbangan ayam broiler berbasis mobile (Android/iOS) menggu
 
 ## 3. Tech Stack
 - **Framework**: React Native (Expo SDK 54).
-- **Backend**: Firebase (Auth, Firestore).
-- **Local Storage**: AsyncStorage (untuk offline persistence dan auth persistence).
+- **Database**: Turso / libSQL via API HTTP `/v2/pipeline` (token tertanam di klien Expo, tanpa backend/proxy).
+- **Autentikasi**: hash password SHA-256 + salt memakai `expo-crypto` (bukan Firebase Auth).
+- **Local Storage**: AsyncStorage (untuk antrean offline, cache daftar, dan persistensi sesi login).
 - **Printer**: ESC/POS Bluetooth.
 - **Export**: Excel (.xlsx) dan PDF.
 
 ## 4. Keamanan & Aturan Data
-- **Firestore Rules**: Hanya admin yang dapat mengedit atau menghapus data timbangan. User biasa hanya dapat input dan membaca data.
-- **Role Protection**: Perubahan role hanya dapat dilakukan oleh admin.
+- **Model ledger bersama**: seluruh pengguna berbagi satu database Turso; kontrol role (admin/user) ditegakkan di level aplikasi, bukan di server. Token Turso tertanam di klien sehingga berisiko terekstrak — trade-off yang disengaja karena tidak ada backend.
+- **Password**: disimpan sebagai `${salt}$${sha256(salt + ":" + password)}`; default `<email-lokal>123` dengan perubahan wajib saat login pertama.
+- **Role Protection**: perubahan role dan reset password hanya dapat dilakukan oleh admin.
 
-## 5. Catatan Teknis & Pelajaran Penting (Update Juni 2026)
-- **Persistensi Auth**: Inisialisasi Firebase Auth harus menggunakan adapter AsyncStorage (`getReactNativePersistence`) agar sesi login tersimpan dengan aman saat aplikasi ditutup.
-- **Input Sanitasi**: Input email dan password harus selalu di-`.trim()` sebelum autentikasi guna mencegah kegagalan login karena spasi kosong tidak disengaja.
-- **EAS Build Env**: Environment variables Firebase harus disertakan di `eas.json` untuk semua profil build agar kompatibel dengan EAS build jarak jauh.
-- **Konfigurasi Project Firebase**: Saat ini aplikasi menggunakan project Firebase `quizzizclone`. Konfigurasi ini tercantum di `.env` untuk development lokal dan di `eas.json` untuk build EAS.
+## 5. Catatan Teknis & Pelajaran Penting (Update Oktober 2026)
+- **Persistensi Auth**: sesi login disimpan via AsyncStorage; `last_login` NULL memaksa perubahan password pada login pertama.
+- **Input Sanitasi**: input email dan password harus selalu di-`.trim()` sebelum autentikasi guna mencegah kegagalan login karena spasi kosong tidak disengaja.
+- **EAS Build Env**: `.env` di-gitignore sehingga tidak ikut ter-upload ke worker EAS. Kredensial Turso (`EXPO_PUBLIC_TURSO_URL`, `EXPO_PUBLIC_TURSO_AUTH_TOKEN`) harus disuntikkan lewat `env` di `eas.json` pada tiap profil build, jika tidak APK tidak dapat mengakses data.
+- **Aset Ikon**: `app.json` memetakan ikon ke `android-chrome-512x512.png` (source), `apple-touch-icon.png` (iOS), dan `favicon-32x32.png` (web); ukuran lain digenerate otomatis oleh Expo.
 - **Template Environment**: Gunakan `.env.example` sebagai template untuk membuat file `.env` lokal. File `.env` asli tidak masuk ke version control.

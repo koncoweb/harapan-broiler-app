@@ -1,7 +1,6 @@
 // src/hooks/useFarmSettings.ts
-import { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebaseConfig';
+import { useCallback, useEffect, useState } from 'react';
+import { getFarmSettings, saveFarmSettings } from '../services/settingsService';
 import { FarmSettings } from '../types';
 
 const DEFAULT_SETTINGS: FarmSettings = {
@@ -13,22 +12,30 @@ export const useFarmSettings = () => {
   const [settings, setSettings] = useState<FarmSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const settingsDoc = await getDoc(doc(db, 'settings', 'general'));
-        if (settingsDoc.exists()) {
-          setSettings(settingsDoc.data() as FarmSettings);
-        }
-      } catch (error) {
-        console.error('Error fetching settings:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSettings();
+  const reload = useCallback(async () => {
+    try {
+      const s = await getFarmSettings();
+      setSettings(s);
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  return { settings, setSettings, loading, defaultSettings: DEFAULT_SETTINGS };
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const save = useCallback(async (next: FarmSettings) => {
+    setSettings(next); // optimistic
+    try {
+      await saveFarmSettings(next);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      throw error;
+    }
+  }, []);
+
+  return { settings, setSettings, save, reload, loading, defaultSettings: DEFAULT_SETTINGS };
 };

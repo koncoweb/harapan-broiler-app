@@ -6,14 +6,11 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
 
 ## [Unreleased]
 
-### Security
-- Menambahkan `.env.example` sebagai template konfigurasi Firebase tanpa nilai sensitif.
-
 ### Deployed
 - Deploy web ke EAS Hosting: https://harapan-broiler--6zve7gm3b4.expo.app
-- Build APK preview: https://expo.dev/artifacts/eas/AC3JLSfzzqvC4vLJSlEBeV0cegpQ_4dABOb78huLmdY.apk
+- Build APK preview v1.0.3: https://expo.dev/artifacts/eas/9YAgo61LvKcFBNo_OoFRRRuslZfRC7cc-0IUuxVCnc4.apk
 
-### Changed
+### Changed (riwayat refactor, pra-migrasi Turso)
 - Memperbarui `requirement.md` agar mencakup fitur terbaru: edit data, status pembayaran, pencarian canggih, batch delete, dan export Excel.
 - Refactor Fase 2: State Management & Eliminasi Duplikasi Kode
   - Menambahkan `src/utils/format.ts` untuk fungsi format angka, berat, mata uang, dan tanggal.
@@ -39,6 +36,38 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/id-ID/1.0.0/).
   - Memperbaiki `isBluetoothPrinterConnected` agar benar-benar memeriksa koneksi ke printer yang tersimpan.
   - Memperbaiki `disconnectBluetoothPrinter` agar memutuskan koneksi ke printer yang benar-benar terhubung.
   - Menambahkan pesan fallback eksplisit untuk iOS/web saat fitur Bluetooth thermal tidak didukung.
+
+## [1.0.3] - 2026-10-01
+
+### Changed
+- **Migrasi database Firebase → Turso/libSQL.** Seluruh baca/tulis data kini lewat
+  Turso (`/v2/pipeline` HTTP API) dengan token tertanam di klien Expo. Lihat
+  `src/config/turso.ts`.
+- **Autentikasi mandiri** memakai `expo-crypto` (hash SHA-256 + salt), bukan lagi
+  Firebase Auth. Password default `<email-lokal>123` dengan perubahan wajib saat
+  login pertama. Reset: `node scripts/reset-user-password.js <email> <password>`.
+- **Warna brand hijau → Emerald Segar** (primary `#15803D`, palette `#14532D`→`#22C55E`),
+  disentralisasi di `src/theme/colors.ts`; seluruh hex hijau lama diganti token.
+- **Modernisasi UI "Soft Minimal Premium"** di semua layar: radius besar, bayangan
+  lembut, kartu tanpa border, aksi ikon berupa pill, header gradien 3-stop, dan
+  tipografi terpusat (`src/theme/typography.ts`).
+- **Ikon app** dipetakan ke aset baru di `app.json` (`android-chrome-512x512.png`,
+  `apple-touch-icon.png`, `favicon-32x32.png`).
+- Nomor versi disinkronkan ke **1.0.3** di `package.json`, `app.json`, dan
+  `package-lock.json`; label versi di Home & Login → "v1.0.3 • Oktober 2026".
+
+### Added
+- **Strategi offline lengkap (A > B > C)** agar data tidak hilang:
+  - (A) Cache baca terakhir (`src/services/sessionCache.ts`) + penggabungan antrean
+    offline ke daftar Home dengan badge "Belum sync" dan fallback saat Turso error.
+  - (B) Fallback tulis: kegagalan tulis ke Turso otomatis dimasukkan ke antrean offline.
+  - (C) Auto-sync (`src/hooks/useAutoSync.ts` + `src/services/syncService.ts`) saat
+    reconnect dan saat app kembali ke foreground.
+- Kredensial Turso (`EXPO_PUBLIC_TURSO_URL`, `EXPO_PUBLIC_TURSO_AUTH_TOKEN`) disuntikkan
+  ke profil `preview` di `eas.json` karena `.env` di-gitignore dan tidak ikut ter-upload.
+
+### Security
+- Menambahkan `.env.example` sebagai template konfigurasi (Tanpa nilai sensitif).
 
 ## [1.0.0] - 2026-06-29
 

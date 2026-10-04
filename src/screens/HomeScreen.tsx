@@ -1,18 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, FlatList, Alert, Platform, Image } from 'react-native';
-import { Appbar, Card, Text, FAB, ActivityIndicator, Button, IconButton, TextInput } from 'react-native-paper';
-import { auth } from '../config/firebaseConfig';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert, Platform, Image, RefreshControl } from 'react-native';
+import { Card, Text, ActivityIndicator, Button, IconButton, TextInput, Icon } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { RootStackParamList, WeighingSession } from '../types';
-import { signOut } from 'firebase/auth';
+import { signOut, getCurrentUser } from '../services/authService';
 import { printReceiptAuto, shareReceipt } from '../services/printerService';
-import { useIsFocused } from '@react-navigation/native';
-import { OfflineStorageService } from '../services/offlineStorage';
+import { OfflineStorageService, OfflineSession } from '../services/offlineStorage';
 import NetInfo from '@react-native-community/netinfo';
 import { useUserRole } from '../hooks/useUserRole';
 import { useFarmSettings } from '../hooks/useFarmSettings';
 import { useWeighingSessions } from '../hooks/useWeighingSessions';
 import { formatCurrency, formatWeight, formatDateId } from '../utils/format';
+import { colors, palette, radius, spacing, shadows, tabularNums, type, weights, sizes } from '../theme';
+import { haptic } from '../theme/haptics';
+import GradientButton from '../components/GradientButton';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -23,47 +28,95 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [showActivities, setShowActivities] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingCount, setPendingCount] = useState(0);
+  const [offlineSessions, setOfflineSessions] = useState<OfflineSession[]>([]);
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
-  const isFocused = useIsFocused();
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const insets = useSafeAreaInsets();
+  const prevConnected = useRef<boolean | null>(null);
 
   const { role: userRole } = useUserRole();
   const { settings } = useFarmSettings();
-  const { sessions, loading } = useWeighingSessions({
+  const { sessions, loading, fromCache, refresh } = useWeighingSessions({
+    // Large window keeps the existing client-side advanced search behaving the
+    // same as the old onSnapshot full-load; pagination tuning comes in the UI pass.
+    pageSize: 500,
     onError: () => Alert.alert('Error', 'Gagal memuat data'),
   });
 
   useEffect(() => {
-    // Check authentication
-    if (!auth.currentUser) {
-      navigation.replace('Login');
-      return;
-    }
+    // Check authentication (Turso session persisted in AsyncStorage)
+    getCurrentUser().then((user) => {
+      if (!user) {
+        navigation.replace('Login');
+      }
+    });
+  }, [navigation]);
 
-    setFilteredSessions(sessions);
-  }, [sessions, navigation]);
+  // Server rows merged with the offline queue so notes entered while offline
+  // (and edits to existing rows) stay visible until they sync.
+  const baseSessions = useMemo<WeighingSession[]>(() => {
+    if (!offlineSessions.length) return sessions;
+    const byId = new Map(sessions.map((s) => [s.id, s as WeighingSession]));
+    const additions: WeighingSession[] = [];
+    for (const off of offlineSessions) {
+      if (byId.has(off.id)) byId.set(off.id, off);
+      else additions.push(off);
+    }
+    return [...additions, ...Array.from(byId.values())];
+  }, [sessions, offlineSessions]);
+
+  const offlineIds = useMemo(() => new Set(offlineSessions.map((s) => s.id)), [offlineSessions]);
+
+  useEffect(() => {
+    setFilteredSessions(baseSessions);
+  }, [baseSessions, navigation]);
 
   useEffect(() => {
     const unsubscribeNetInfo = NetInfo.addEventListener(state => {
-      setIsConnected(state.isConnected ?? false);
+      const connected = state.isConnected ?? false;
+      setIsConnected(connected);
+      if (connected && prevConnected.current === false) {
+        // Came back online: refresh list + queue (app-wide auto-sync pushes it).
+        refresh();
+        checkPendingItems();
+      }
+      prevConnected.current = connected;
     });
     return () => unsubscribeNetInfo();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh]);
 
-  useEffect(() => {
-    if (isFocused) {
+  // Re-read the offline queue AND re-fetch the server list every time Home gains
+  // focus. The Turso data layer fetches once per mount (no live onSnapshot like
+  // the old Firestore listener), so a nota saved online in CreateNota wouldn't
+  // appear until a full remount — which users worked around by logging out and
+  // back in. Refreshing on re-focus makes saves show up immediately. The first
+  // focus is skipped because the hook already loads on mount.
+  const didInitialLoad = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
       checkPendingItems();
-    }
-  }, [isFocused]);
+      if (didInitialLoad.current) {
+        refresh();
+      }
+      didInitialLoad.current = true;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refresh])
+  );
 
   const checkPendingItems = async () => {
-    const count = await OfflineStorageService.getPendingCount();
+    const [count, queued] = await Promise.all([
+      OfflineStorageService.getPendingCount(),
+      OfflineStorageService.getSessions(),
+    ]);
     setPendingCount(count);
+    setOfflineSessions(queued);
   };
 
   // Advanced multi-search functionality
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setFilteredSessions(sessions);
+      setFilteredSessions(baseSessions);
       return;
     }
 
@@ -72,7 +125,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     // Split query into multiple terms (support space, comma, and semicolon separators)
     const searchTerms = query.split(/[\s,;]+/).filter(term => term.length > 0);
     
-    const filtered = sessions.filter(session => {
+    const filtered = baseSessions.filter(session => {
       // For each session, check if it matches ALL search terms (AND logic)
       return searchTerms.every(term => {
         // Check each term against all searchable fields
@@ -163,7 +216,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     });
 
     setFilteredSessions(filtered);
-  }, [searchQuery, sessions]);
+  }, [searchQuery, baseSessions]);
 
   // Calculate relevance score for sorting
   const calculateRelevanceScore = (session: WeighingSession, terms: string[]) => {
@@ -190,7 +243,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      await signOut();
       navigation.replace('Login');
     } catch (error) {
       console.error(error);
@@ -198,99 +251,147 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   const renderSessionItem = ({ item }: { item: WeighingSession }) => (
-    <Card style={styles.compactCard}>
+    <Card style={styles.compactCard} mode="contained">
       <Card.Content style={styles.compactCardContent}>
         <View style={styles.compactCardHeader}>
           <View style={styles.compactCardLeft}>
-            <Text style={styles.compactCardTitle}>{item.buyer}</Text>
-            <Text style={styles.compactCardSubtitle}>
-              {formatWeight(item.totalNetWeight || 0)} Kg • {item.totalColi || 0} Timbangan
-            </Text>
+            <View style={styles.buyerRow}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{item.buyer.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.compactCardTitle} numberOfLines={1}>{item.buyer}</Text>
+                <Text style={styles.compactCardSubtitle}>
+                  {formatWeight(item.totalNetWeight || 0)} Kg • {item.totalColi || 0} Timbangan
+                </Text>
+              </View>
+            </View>
           </View>
           <View style={styles.compactCardRight}>
             <Text style={styles.compactCardDate}>{formatDateId(item.date)}</Text>
             <Text style={styles.compactCardPrice}>{formatCurrency(item.totalAmount || 0)}</Text>
+            {offlineIds.has(item.id) && (
+              <Text style={styles.unsyncedBadge}>Belum sync</Text>
+            )}
           </View>
         </View>
+        <View style={styles.cardActions}>
+          <IconButton
+            icon="printer"
+            size={18}
+            iconColor={palette.green700}
+            style={styles.actionBtn}
+            onPress={() => { haptic.tap(); printReceiptAuto(item, settings || undefined); }}
+          />
+          <IconButton
+            icon="share-variant"
+            size={18}
+            iconColor={palette.green700}
+            style={styles.actionBtn}
+            onPress={() => { haptic.tap(); shareReceipt(item, settings || undefined); }}
+          />
+        </View>
       </Card.Content>
-      <View style={styles.compactCardActions}>
-        <IconButton 
-          icon="printer" 
-          size={18} 
-          onPress={() => printReceiptAuto(item, settings || undefined)} 
-        />
-        <IconButton 
-          icon="share-variant" 
-          size={18} 
-          onPress={() => shareReceipt(item, settings || undefined)} 
-        />
-      </View>
     </Card>
   );
 
   return (
     <View style={styles.container}>
-      <View style={{ width: '100%', overflow: 'hidden', backgroundColor: '#1B5E20' }}>
-        <Image 
-          source={require('../../assets/header.png')} 
-          style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', opacity: 0.25 }]}
+      <StatusBar style="light" />
+
+      {/* Gradient header */}
+      <LinearGradient
+        colors={[palette.green900, palette.green700, palette.green600]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerWrap}
+      >
+        <Image
+          source={require('../../assets/header.png')}
+          style={styles.headerTexture}
           resizeMode="cover"
           blurRadius={Platform.OS === 'ios' ? 5 : 2}
         />
-        <Appbar.Header style={[styles.header, { backgroundColor: 'transparent', elevation: 0 }]}>
-          <Appbar.Content title={settings?.farmName || "Harapan Broiler"} titleStyle={{color: 'white', fontWeight: 'bold'}} />
-          <Appbar.Action icon="bluetooth" color="white" onPress={() => navigation.navigate('BluetoothSettings')} />
+        <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {settings?.farmName || 'Harapan Broiler'}
+            </Text>
+            <Text style={styles.headerSubtitle}>Aktivitas Timbangan</Text>
+          </View>
+          <IconButton icon="bluetooth" size={22} iconColor="#fff" onPress={() => { haptic.tap(); navigation.navigate('BluetoothSettings'); }} />
           {userRole === 'admin' && (
-            <Appbar.Action icon="shield-account" color="white" onPress={() => navigation.navigate('Admin')} />
+            <IconButton icon="shield-account" size={22} iconColor="#fff" onPress={() => { haptic.tap(); navigation.navigate('Admin'); }} />
           )}
-          <Appbar.Action icon="logout" color="white" onPress={handleLogout} />
-        </Appbar.Header>
-      </View>
+          <IconButton icon="logout" size={22} iconColor="#fff" onPress={handleLogout} />
+        </View>
+      </LinearGradient>
 
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={pullRefreshing}
+            onRefresh={async () => {
+              setPullRefreshing(true);
+              try {
+                await Promise.all([refresh(), checkPendingItems()]);
+              } finally {
+                setPullRefreshing(false);
+              }
+            }}
+            colors={[palette.green700]}
+            tintColor={palette.green700}
+          />
+        }
+      >
         {((isConnected === false) || pendingCount > 0) && (
-          <Card style={styles.offlineBanner} onPress={() => navigation.navigate('Sync')}>
-            <Card.Content style={styles.offlineBannerContent}>
-              <View>
-                <Text style={styles.offlineBannerTitle}>
-                  {isConnected === false ? 'Mode Offline' : 'Data Belum Tersinkron'}
+          <View style={[styles.offlineBanner, { marginBottom: spacing.lg }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.offlineBannerTitle}>
+                {isConnected === false ? 'Mode Offline' : 'Data Belum Tersinkron'}
+              </Text>
+              {isConnected === false && pendingCount === 0 && (
+                <Text style={styles.offlineBannerText}>
+                  Anda sedang offline. Data baru akan tersimpan di perangkat.
                 </Text>
-                {isConnected === false && pendingCount === 0 && (
-                  <Text style={styles.offlineBannerText}>
-                    Anda sedang offline. Data baru akan tersimpan di perangkat.
-                  </Text>
-                )}
-                {pendingCount > 0 && (
-                  <Text style={styles.offlineBannerText}>
-                    {pendingCount} data tersimpan di perangkat
-                  </Text>
-                )}
-              </View>
-              <Button mode="contained" buttonColor="white" textColor="#E65100" compact>
-                Sync
-              </Button>
-            </Card.Content>
-          </Card>
+              )}
+              {pendingCount > 0 && (
+                <Text style={styles.offlineBannerText}>
+                  {pendingCount} data tersimpan di perangkat
+                </Text>
+              )}
+            </View>
+            <Button
+              mode="contained"
+              buttonColor={palette.warning}
+              textColor="#fff"
+              compact
+              style={styles.shadowSoft}
+              onPress={() => { haptic.tap(); navigation.navigate('Sync'); }}
+            >
+              Sync
+            </Button>
+          </View>
         )}
 
-        {/* Input Timbangan Baru CTA - Prominent */}
-        <View style={styles.ctaContainer}>
-          <FAB
-            style={styles.fabLarge}
-            icon="plus"
-            color="white"
-            onPress={() => navigation.navigate('CreateNota')}
-            label="INPUT TIMBANGAN BARU"
-          />
-        </View>
+        {/* Input Timbangan Baru CTA */}
+        <GradientButton
+          label="Input Timbangan Baru"
+          icon={<Icon source="plus" size={22} color="#fff" />}
+          onPress={() => { haptic.medium(); navigation.navigate('CreateNota'); }}
+          style={{ marginBottom: spacing.xl }}
+        />
 
         {/* Aktivitas Terakhir - Collapsible */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>AKTIVITAS TERAKHIR</Text>
           <IconButton
-            icon={showActivities ? "chevron-up" : "chevron-down"}
+            icon={showActivities ? 'chevron-up' : 'chevron-down'}
             size={20}
-            onPress={() => setShowActivities(!showActivities)}
+            onPress={() => { haptic.tap(); setShowActivities(!showActivities); }}
           />
         </View>
 
@@ -300,17 +401,16 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             <View style={styles.searchContainer}>
               <TextInput
                 mode="outlined"
-                placeholder="Cari: budi desember, &gt;2000000, berat&gt;100, B1234..."
+                placeholder="Cari: budi desember, >2000000, berat>100, B1234..."
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 left={<TextInput.Icon icon="magnify" />}
-                right={searchQuery ? <TextInput.Icon icon="close" onPress={() => setSearchQuery('')} /> : null}
+                right={searchQuery ? <TextInput.Icon icon="close" onPress={() => setSearchQuery('')} /> : undefined}
                 style={styles.searchInput}
                 dense
-                theme={{ colors: { background: 'white' } }}
                 multiline={false}
               />
-              
+
               {/* Search Tips */}
               {!searchQuery && (
                 <View style={styles.searchTips}>
@@ -321,8 +421,16 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               )}
             </View>
 
-            {loading ? (
-              <ActivityIndicator size="large" color="#2E7D32" style={{ marginTop: 20 }} />
+            {fromCache && !loading && (
+              <View style={styles.cacheNote}>
+                <Text style={styles.cacheNoteText}>
+                  Menampilkan data tersimpan (offline). Daftar bisa jadi belum terbaru.
+                </Text>
+              </View>
+            )}
+
+            {loading && filteredSessions.length === 0 ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: spacing.xl }} />
             ) : (
               <>
                 {searchQuery && (
@@ -344,8 +452,8 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                   </View>
                 )}
                 {filteredSessions.slice(0, 20).map(session => (
-                  <View key={session.id} style={{marginBottom: 8}}>
-                    {renderSessionItem({item: session})}
+                  <View key={session.id} style={{ marginBottom: spacing.sm }}>
+                    {renderSessionItem({ item: session })}
                   </View>
                 ))}
                 {filteredSessions.length === 0 && searchQuery && (
@@ -367,203 +475,272 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             )}
           </>
         )}
-        
-        <Text style={styles.versionText}>Harapan Broiler v1.0.2 • Juni 2026</Text>
-        <View style={{height: 100}} /> 
+
+        <Text style={styles.versionText}>Harapan Broiler v1.0.3 • Oktober 2026</Text>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  versionText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 10,
-    marginTop: 20,
-    marginBottom: -10,
-  },
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: colors.background,
   },
-  header: {
-    backgroundColor: '#2E7D32',
+  headerWrap: {
+    width: '100%',
+    overflow: 'hidden',
+    boxShadow: shadows.header,
+  },
+  headerTexture: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    opacity: 0.08,
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  headerTitle: {
+    color: '#fff',
+    ...type.screenTitle,
+  },
+  headerSubtitle: {
+    color: palette.green300,
+    ...type.caption,
+    marginTop: 2,
+  },
+  shadowSoft: {
+    borderRadius: radius.sm,
+    borderCurve: 'continuous',
   },
   offlineBanner: {
-    marginBottom: 16,
-    backgroundColor: '#E65100',
-  },
-  offlineBannerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: palette.warningBg,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
   },
   offlineBannerTitle: {
-    color: 'white',
-    fontWeight: 'bold',
+    color: palette.warning,
+    ...type.bodyStrong,
+    fontWeight: weights.extrabold,
   },
   offlineBannerText: {
-    color: 'white',
-    fontSize: 12,
+    color: palette.warning,
+    ...type.caption,
+    marginTop: 2,
+    opacity: 0.9,
   },
   content: {
     flex: 1,
-    padding: 16,
   },
-  ctaContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  fabLarge: {
-    backgroundColor: '#4CAF50',
-    width: '100%',
-    borderRadius: 15,
+  contentContainer: {
+    padding: spacing.xl,
+    paddingBottom: spacing.xxl + 40,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: spacing.md,
   },
   sectionTitle: {
-    fontWeight: 'bold',
-    color: '#333',
-    fontSize: 16,
+    color: colors.text,
+    ...type.sectionTitle,
   },
   searchContainer: {
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   searchInput: {
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     fontSize: 14,
+    borderRadius: radius.md,
   },
   searchTips: {
-    backgroundColor: '#E8F5E9',
-    padding: 8,
-    borderRadius: 6,
-    marginTop: 6,
+    backgroundColor: palette.successBg,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    borderCurve: 'continuous',
+    marginTop: spacing.sm,
   },
   searchTipsText: {
-    fontSize: 11,
-    color: '#2E7D32',
+    ...type.micro,
+    color: palette.success,
     fontStyle: 'italic',
   },
   searchResultsContainer: {
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   searchResults: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
+    ...type.caption,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
     fontStyle: 'italic',
   },
   searchTermsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    marginTop: 4,
+    gap: 4,
+    marginTop: spacing.xs,
   },
   searchTermsLabel: {
-    fontSize: 11,
-    color: '#999',
+    ...type.micro,
+    color: colors.textMuted,
     marginRight: 4,
   },
   searchTerm: {
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 6,
+    backgroundColor: palette.infoBg,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 2,
-    borderRadius: 10,
-    marginRight: 4,
-    marginBottom: 2,
+    borderRadius: radius.pill,
   },
   searchTermText: {
-    fontSize: 10,
-    color: '#1976D2',
-    fontWeight: '500',
+    ...type.micro,
+    fontWeight: weights.semibold,
+    color: palette.info,
   },
   noResults: {
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    marginTop: 10,
+    padding: spacing.xl,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    marginTop: spacing.md,
+    boxShadow: shadows.card,
   },
   noResultsText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#666',
-    marginBottom: 4,
+    ...type.cardTitle,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   noResultsSubtext: {
-    fontSize: 14,
-    color: '#999',
+    ...type.body,
+    color: colors.textMuted,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   searchExamples: {
     alignItems: 'flex-start',
     width: '100%',
   },
   searchExamplesTitle: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#666',
-    marginBottom: 6,
+    ...type.label,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
   },
   searchExample: {
-    fontSize: 12,
-    color: '#777',
-    marginBottom: 2,
+    ...type.caption,
+    color: colors.textMuted,
+    marginBottom: spacing.xs,
   },
   compactCard: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    elevation: 1,
-    marginBottom: 2,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderCurve: 'continuous',
+    boxShadow: shadows.card,
   },
   compactCardContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
   },
   compactCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.md,
   },
   compactCardLeft: {
     flex: 1,
-    marginRight: 8,
+  },
+  buyerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: palette.green100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: palette.green800,
+    fontSize: sizes.lg,
+    fontWeight: weights.extrabold,
   },
   compactCardRight: {
     alignItems: 'flex-end',
   },
   compactCardTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 2,
+    ...type.cardTitleSm,
+    color: colors.text,
   },
   compactCardSubtitle: {
-    fontSize: 12,
-    color: '#666',
+    ...type.subtitle,
+    color: colors.textSecondary,
+    marginTop: 2,
+    ...tabularNums,
   },
   compactCardDate: {
-    fontSize: 11,
-    color: '#999',
+    ...type.micro,
+    color: colors.textMuted,
     marginBottom: 2,
   },
   compactCardPrice: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#2E7D32',
+    ...type.numericSm,
+    fontWeight: weights.extrabold,
+    color: palette.green700,
   },
-  compactCardActions: {
+  unsyncedBadge: {
+    marginTop: 2,
+    alignSelf: 'flex-end',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    backgroundColor: palette.warningBg,
+    color: palette.warning,
+    ...type.micro,
+    fontWeight: weights.bold,
+    overflow: 'hidden',
+  },
+  cacheNote: {
+    backgroundColor: palette.infoBg,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  cacheNoteText: {
+    color: palette.info,
+    ...type.caption,
+  },
+  cardActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    paddingHorizontal: 8,
-    paddingBottom: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  actionBtn: {
+    backgroundColor: palette.green50,
+    borderRadius: radius.pill,
+    margin: 0,
+  },
+  versionText: {
+    textAlign: 'center',
+    color: colors.textMuted,
+    ...type.micro,
+    marginTop: spacing.xl,
   },
 });

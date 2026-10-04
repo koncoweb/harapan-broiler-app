@@ -1,6 +1,6 @@
 {
   "name": "harapan-broiler",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -18,8 +18,10 @@
     "@vardrz/react-native-bluetooth-escpos-printer": "^0.1.1",
     "expo": "~54.0.30",
     "expo-build-properties": "~1.0.10",
+    "expo-crypto": "~15.0.9",
     "expo-dev-client": "~6.0.20",
     "expo-file-system": "^19.0.21",
+    "expo-haptics": "~15.0.8",
     "expo-linear-gradient": "^15.0.8",
     "expo-print": "^15.0.8",
     "expo-sharing": "^14.0.8",
